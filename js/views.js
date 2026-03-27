@@ -16,8 +16,8 @@ F4.views.login = function(container) {
         "<h1 class=\"login-title\">F4 Magazzino</h1>" +
         "<p class=\"login-sub\">Gestionale Coprifili Internorm</p>" +
         "<div class=\"form-group\">" +
-          "<label class=\"f4-label\">Username</label>" +
-          "<input id=\"l-email\" type=\"text\" class=\"f4-input\" placeholder=\"es. marco\" autocomplete=\"username\">" +
+          "<label class=\"f4-label\">Email</label>" +
+          "<input id=\"l-email\" type=\"email\" class=\"f4-input\" placeholder=\"nome@finestra4.it\" autocomplete=\"email\">" +
         "</div>" +
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Password</label>" +
@@ -33,7 +33,7 @@ F4.views.login = function(container) {
     var pass  = document.getElementById("l-pass").value;
     var errEl = document.getElementById("l-err");
     errEl.classList.add("hidden");
-    if (!email || !pass) { errEl.textContent = "Compila username e password"; errEl.classList.remove("hidden"); return; }
+    if (!email || !pass) { errEl.textContent = "Compila tutti i campi"; errEl.classList.remove("hidden"); return; }
     F4.auth.login(email, pass, function(errMsg) {
       if (errMsg) { errEl.textContent = errMsg; errEl.classList.remove("hidden"); return; }
       F4.router.go("dashboard");
@@ -124,8 +124,20 @@ F4.views.anagrafica = function(container) {
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#128196; Anagrafica Prodotti</h2>" +
     "</div>" +
-    "<div class=\"toolbar\">" +
-      "<input id=\"anag-q\" class=\"f4-input search-input\" placeholder=\"Cerca per descrizione...\">" +
+    "<div class=\"toolbar\" style=\"flex-wrap:wrap;gap:0.5rem;\">" +
+      "<input id=\"anag-q\" class=\"f4-input\" style=\"min-width:160px;flex:1\" placeholder=\"Cerca libera...\">" +
+      "<select id=\"anag-tip\" class=\"f4-input select-sm\">" +
+        "<option value=\"\">Tutte le tipologie</option>" +
+        "<option>Piatta PVC</option>" +
+        "<option>Piatta PVC c/incisione</option>" +
+        "<option>Piatta Alluminio</option>" +
+        "<option>Angolare PVC</option>" +
+        "<option>Angolare Alluminio</option>" +
+        "<option>Angolare PVC Espanso</option>" +
+        "<option>Aggancio Ang. PVC Esp.</option>" +
+        "<option>Squadretta PVC Esp.</option>" +
+        "<option>Coprifuga Legno Impl.</option>" +
+      "</select>" +
       "<select id=\"anag-mat\" class=\"f4-input select-sm\">" +
         "<option value=\"\">Tutti i materiali</option>" +
         "<option value=\"PVC\">PVC</option>" +
@@ -133,49 +145,89 @@ F4.views.anagrafica = function(container) {
         "<option value=\"PVC Espanso\">PVC Espanso</option>" +
         "<option value=\"Legno/Alluminio\">Legno/Alluminio</option>" +
       "</select>" +
+      "<input id=\"anag-mis\" class=\"f4-input select-sm\" placeholder=\"Misura es. 30/3\">" +
+      "<input id=\"anag-fam\" class=\"f4-input select-sm\" placeholder=\"Famiglia colore\">" +
+      "<input id=\"anag-col\" class=\"f4-input select-sm\" placeholder=\"Colore es. DP001\">" +
       "<button id=\"anag-cerca\" class=\"btn btn-primary\">Cerca</button>" +
+      "<button id=\"anag-reset\" class=\"btn btn-ghost\">Reset</button>" +
     "</div>" +
     "<div id=\"anag-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
+  var allProdotti = [];
+
+  function normalizzaMisura(v) {
+    if (!v) return "";
+    var s = v.toString();
+    if (s.indexOf("T") > 0 && s.length > 15) return "(vedi DB)";
+    return s;
+  }
+
   function caricaProdotti() {
-    var q   = document.getElementById("anag-q").value.trim();
-    var mat = document.getElementById("anag-mat").value;
     F4.ui.showSpinner("Caricamento prodotti...");
-    F4.api.getProdotti({ q: q, materiale: mat, stato: "Attivo" }, function(err, res) {
+    F4.api.getProdotti({ stato: "Attivo" }, function(err, res) {
       F4.ui.hideSpinner();
-      var el = document.getElementById("anag-list");
-      if (!el) return;
       if (err || !res || !res.success) {
-        el.innerHTML = F4.ui.renderTabellaVuota("Errore caricamento");
+        document.getElementById("anag-list").innerHTML = F4.ui.renderTabellaVuota("Errore caricamento");
         return;
       }
-      if (!res.data || res.data.length === 0) {
-        el.innerHTML = F4.ui.renderTabellaVuota("Nessun prodotto trovato");
-        return;
-      }
-      var html = "<div class=\"table-wrap\"><table class=\"f4-table\">" +
-        "<thead><tr>" +
-        "<th>ID</th><th>Tipologia</th><th>Materiale</th><th>Misura</th><th>Colore</th><th>U.M.</th>" +
-        "</tr></thead><tbody>";
-      res.data.forEach(function(p) {
-        html += "<tr class=\"clickable-row\" data-id=\"" + F4.ui.esc(p.idProdotto) + "\">" +
-          "<td><span class=\"badge\">" + F4.ui.esc(p.idProdotto) + "</span></td>" +
-          "<td>" + F4.ui.esc(p.categoria) + "</td>" +
-          "<td>" + F4.ui.esc(p.formaMateriale) + "</td>" +
-          "<td>" + F4.ui.esc(p.dimensioniHxlxsp) + "</td>" +
-          "<td><span class=\"colore-badge\">" + F4.ui.esc(p.codiceColore) + "</span></td>" +
-          "<td>" + F4.ui.esc(p.unitaMisuraUm) + "</td>" +
-          "</tr>";
-      });
-      html += "</tbody></table></div>";
-      html += "<div class=\"table-footer\">Trovati: " + res.totale + " prodotti</div>";
-      el.innerHTML = html;
+      allProdotti = res.data || [];
+      applicaFiltri();
     });
   }
 
-  document.getElementById("anag-cerca").addEventListener("click", caricaProdotti);
+  function applicaFiltri() {
+    var q   = (document.getElementById("anag-q").value   || "").trim().toLowerCase();
+    var tip = (document.getElementById("anag-tip").value  || "").trim().toLowerCase();
+    var mat = (document.getElementById("anag-mat").value  || "").trim().toLowerCase();
+    var mis = (document.getElementById("anag-mis").value  || "").trim().toLowerCase();
+    var fam = (document.getElementById("anag-fam").value  || "").trim().toLowerCase();
+    var col = (document.getElementById("anag-col").value  || "").trim().toLowerCase();
+
+    var filtrati = allProdotti.filter(function(p) {
+      if (tip && (p.categoria        || "").toLowerCase().indexOf(tip) === -1) return false;
+      if (mat && (p.formaMateriale   || "").toLowerCase().indexOf(mat) === -1) return false;
+      if (mis && (p.dimensioniHxlxsp || "").toLowerCase().indexOf(mis) === -1) return false;
+      if (fam && (p.famigliaColore   || "").toLowerCase().indexOf(fam) === -1) return false;
+      if (col && (p.codiceColore     || "").toLowerCase().indexOf(col) === -1) return false;
+      if (q) {
+        var hay = ((p.descrizioneCompleta || "") + " " + (p.codiceInternorm || "") + " " + (p.codiceColore || "")).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+
+    var el = document.getElementById("anag-list");
+    if (!el) return;
+    if (filtrati.length === 0) { el.innerHTML = F4.ui.renderTabellaVuota("Nessun prodotto trovato"); return; }
+
+    var html = "<div class=\"table-wrap\"><table class=\"f4-table\">" +
+      "<thead><tr><th>ID</th><th>Cod.Internorm</th><th>Tipologia</th><th>Materiale</th><th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th></tr></thead><tbody>";
+    filtrati.forEach(function(p) {
+      html += "<tr>" +
+        "<td><span class=\"badge\">" + F4.ui.esc(p.idProdotto) + "</span></td>" +
+        "<td><span class=\"badge badge-blue\">" + F4.ui.esc(p.codiceInternorm || "") + "</span></td>" +
+        "<td>" + F4.ui.esc(p.categoria) + "</td>" +
+        "<td>" + F4.ui.esc(p.formaMateriale) + "</td>" +
+        "<td>" + F4.ui.esc(normalizzaMisura(p.dimensioniHxlxsp)) + "</td>" +
+        "<td>" + F4.ui.esc(p.famigliaColore || "") + "</td>" +
+        "<td><span class=\"colore-badge\">" + F4.ui.esc(p.codiceColore) + "</span></td>" +
+        "<td>" + F4.ui.esc(p.unitaMisuraUm) + "</td>" +
+        "</tr>";
+    });
+    html += "</tbody></table></div>";
+    html += "<div class=\"table-footer\">Trovati: " + filtrati.length + " / " + allProdotti.length + " prodotti</div>";
+    el.innerHTML = html;
+  }
+
+  document.getElementById("anag-cerca").addEventListener("click", applicaFiltri);
+  document.getElementById("anag-reset").addEventListener("click", function() {
+    ["anag-q","anag-tip","anag-mat","anag-mis","anag-fam","anag-col"].forEach(function(id) {
+      document.getElementById(id).value = "";
+    });
+    applicaFiltri();
+  });
   document.getElementById("anag-q").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") caricaProdotti();
+    if (e.key === "Enter") applicaFiltri();
   });
   caricaProdotti();
 };
@@ -738,10 +790,11 @@ F4.views.storico = function(container) {
 // VIEW: MAGAZZINI
 // ============================================================
 F4.views.magazzini = function(container) {
+  var puoGestire = F4.auth.canDo("gestioneMagazzini");
   container.innerHTML =
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#127968; Gestione Magazzini</h2>" +
-      (F4.auth.canDo("gestioneMagazzini") ? "<button id=\"mag-nuovo\" class=\"btn btn-primary\">&#43; Nuovo Magazzino</button>" : "") +
+      (puoGestire ? "<button id=\"mag-nuovo\" class=\"btn btn-primary\">&#43; Nuovo Magazzino</button>" : "") +
     "</div>" +
     "<div id=\"mag-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
@@ -750,24 +803,67 @@ F4.views.magazzini = function(container) {
       var el = document.getElementById("mag-list");
       if (!el) return;
       if (err || !res || !res.success || !res.data || res.data.length === 0) {
-        el.innerHTML = F4.ui.renderTabellaVuota("Nessun magazzino");
+        el.innerHTML = F4.ui.renderTabellaVuota("Nessun magazzino configurato");
         return;
       }
-      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr><th>ID</th><th>Nome</th><th>Indirizzo</th><th>Stato</th></tr></thead><tbody>";
+      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr><th>ID</th><th>Nome</th><th>Indirizzo</th><th>Stato</th>" +
+        (puoGestire ? "<th>Azioni</th>" : "") + "</tr></thead><tbody>";
       res.data.forEach(function(m) {
-        html += "<tr><td><span class=\"badge\">" + F4.ui.esc(m.idMagazzino) + "</span></td>" +
-          "<td>" + F4.ui.esc(m.nomeMagazzino) + "</td><td>" + F4.ui.esc(m.indirizzo) + "</td>" +
-          "<td><span class=\"badge badge-ok\">" + F4.ui.esc(m.stato) + "</span></td></tr>";
+        html += "<tr>" +
+          "<td><span class=\"badge\">" + F4.ui.esc(m.idMagazzino) + "</span></td>" +
+          "<td><strong>" + F4.ui.esc(m.nomeMagazzino) + "</strong></td>" +
+          "<td>" + F4.ui.esc(m.indirizzo) + "</td>" +
+          "<td><span class=\"badge badge-ok\">" + F4.ui.esc(m.stato) + "</span></td>";
+        if (puoGestire) {
+          html += "<td><button class=\"btn btn-sm btn-secondary\" onclick=\"F4.views._editMagazzino('" +
+            F4.ui.esc(m.idMagazzino) + "','" + F4.ui.esc(m.nomeMagazzino) + "','" + F4.ui.esc(m.indirizzo) + "','" + F4.ui.esc(m.stato) + "')\">&#9998; Modifica</button></td>";
+        }
+        html += "</tr>";
       });
       html += "</tbody></table></div>";
       el.innerHTML = html;
     });
   }
 
-  if (document.getElementById("mag-nuovo")) {
-    document.getElementById("mag-nuovo").addEventListener("click", function() {
-      var html = "<div class=\"form-group\"><label>Nome Magazzino</label><input id=\"nm-nome\" class=\"f4-input\" placeholder=\"es. Magazzino Trieste\"></div>" +
-        "<div class=\"form-group\"><label>Indirizzo</label><input id=\"nm-ind\" class=\"f4-input\" placeholder=\"Via...\"></div>";
+  F4.views._editMagazzino = function(id, nome, ind, stato) {
+    var html = "<div class=\"form-group\"><label>Nome Magazzino</label>" +
+      "<input id=\"em-nome\" class=\"f4-input\" value=\"" + F4.ui.esc(nome) + "\"></div>" +
+      "<div class=\"form-group\"><label>Indirizzo</label>" +
+      "<input id=\"em-ind\" class=\"f4-input\" value=\"" + F4.ui.esc(ind) + "\"></div>" +
+      "<div class=\"form-group\"><label>Stato</label>" +
+      "<select id=\"em-stato\" class=\"f4-input\">" +
+      "<option value=\"Attivo\"" + (stato === "Attivo" ? " selected" : "") + ">Attivo</option>" +
+      "<option value=\"Inattivo\"" + (stato === "Inattivo" ? " selected" : "") + ">Inattivo (obsoleto)</option>" +
+      "</select></div>";
+    F4.ui.modal("Modifica Magazzino " + id, html, [
+      { label: "Annulla", cls: "btn-ghost" },
+      { label: "Salva", cls: "btn-primary", chiudi: false, action: function() {
+        var dati = {
+          idMagazzino:   id,
+          nomeMagazzino: document.getElementById("em-nome").value.trim(),
+          indirizzo:     document.getElementById("em-ind").value.trim(),
+          stato:         document.getElementById("em-stato").value
+        };
+        if (!dati.nomeMagazzino) { F4.ui.err("Nome obbligatorio"); return; }
+        F4.ui.showSpinner("Salvataggio...");
+        F4.api.aggiornaMagazzino(dati, function(e, r) {
+          F4.ui.hideSpinner();
+          if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+          F4.ui.ok("Magazzino aggiornato");
+          F4.ui.closeModal();
+          carica();
+        });
+      }}
+    ]);
+  };
+
+  if (puoGestire) {
+    var btnNuovo = document.getElementById("mag-nuovo");
+    if (btnNuovo) btnNuovo.addEventListener("click", function() {
+      var html = "<div class=\"form-group\"><label>Nome Magazzino</label>" +
+        "<input id=\"nm-nome\" class=\"f4-input\" placeholder=\"es. Magazzino Trieste\"></div>" +
+        "<div class=\"form-group\"><label>Indirizzo</label>" +
+        "<input id=\"nm-ind\" class=\"f4-input\" placeholder=\"Via...\"></div>";
       F4.ui.modal("Nuovo Magazzino", html, [
         { label: "Annulla", cls: "btn-ghost" },
         { label: "Crea", cls: "btn-primary", chiudi: false, action: function() {
@@ -819,7 +915,7 @@ F4.views.utenti = function(container) {
         html += "<tr>" +
           "<td><span class=\"badge\">" + F4.ui.esc(u.idUtente) + "</span></td>" +
           "<td>" + F4.ui.esc(u.nome) + " " + F4.ui.esc(u.cognome) + "</td>" +
-          "<td>" + F4.ui.esc(u.username || u.email || "") + "</td>" +
+          "<td>" + F4.ui.esc(u.email) + "</td>" +
           "<td><span class=\"badge " + ruoloClass + "\">" + F4.ui.esc(u.ruolo) + "</span></td>" +
           "<td>" + F4.ui.esc(u.stato) + "</td>" +
           "<td><button class=\"btn btn-sm btn-secondary\" onclick=\"F4.views._editUtente('" + F4.ui.esc(u.idUtente) + "');\">Modifica</button></td>" +
@@ -851,7 +947,7 @@ F4.views.utenti = function(container) {
     var html = "<div class=\"form-grid\">" +
       "<div class=\"form-group\"><label>Nome</label><input id=\"nu-nome\" class=\"f4-input\"></div>" +
       "<div class=\"form-group\"><label>Cognome</label><input id=\"nu-cog\" class=\"f4-input\"></div>" +
-      "<div class=\"form-group\"><label>Username</label><input id=\"nu-email\" type=\"text\" class=\"f4-input\" placeholder=\"es. mario\"></div>" +
+      "<div class=\"form-group\"><label>Email</label><input id=\"nu-email\" type=\"email\" class=\"f4-input\"></div>" +
       "<div class=\"form-group\"><label>Cellulare</label><input id=\"nu-cell\" class=\"f4-input\"></div>" +
       "<div class=\"form-group\"><label>Ruolo</label><select id=\"nu-ruolo\" class=\"f4-input\"><option>Admin</option><option selected>Management</option><option>Operativo</option></select></div>" +
       "<div class=\"form-group\"><label>Password iniziale</label><input id=\"nu-pass\" type=\"password\" class=\"f4-input\"></div>" +
@@ -939,7 +1035,7 @@ F4.views.impostazioni = function(container) {
     "<div class=\"op-card glass\">" +
       "<div class=\"section-title\">Profilo Utente</div>" +
       "<p><strong>Nome:</strong> " + F4.ui.esc((utente ? utente.nome + " " + utente.cognome : "—")) + "</p>" +
-      "<p><strong>Username:</strong> " + F4.ui.esc((utente ? (utente.username || utente.email || "—") : "—")) + "</p>" +
+      "<p><strong>Email:</strong> " + F4.ui.esc((utente ? utente.email : "—")) + "</p>" +
       "<p><strong>Ruolo:</strong> " + F4.ui.esc((utente ? utente.ruolo : "—")) + "</p>" +
       "<div class=\"section-title\" style=\"margin-top:1.5rem\">Cambia Password</div>" +
       "<div class=\"form-group\"><label class=\"f4-label\">Nuova Password</label>" +
