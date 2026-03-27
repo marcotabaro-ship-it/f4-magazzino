@@ -1,5 +1,5 @@
 // sw.js — Service Worker F4 Magazzino
-var CACHE_NAME = "f4mag-v3";
+var CACHE_NAME = "f4mag-v4";
 var ASSETS = [
   "./index.html",
   "./css/style.css",
