@@ -107,7 +107,13 @@ F4.api = (function() {
     call("cercaSfrido", p, cb);
   }
 
-  return {
+  // ——— REPORT ———
+  function getReportGiacenze(filtri, cb)           { call("getReportGiacenze",           filtri || {}, cb); }
+  function getReportMovimenti(filtri, cb)           { call("getReportMovimenti",           filtri || {}, cb); }
+  function getSchedaProdotto(idProdotto, cb)        { call("getSchedaProdotto",            { idProdotto: idProdotto }, cb); }
+  function getReportRiepilogoMagazzini(filtri, cb)  { call("getReportRiepilogoMagazzini",  filtri || {}, cb); }
+
+    return {
     call: call,
     login: login,
     logout: logout,
@@ -135,7 +141,11 @@ F4.api = (function() {
     getAudit: getAudit,
     getDashboard: getDashboard,
     getSnapshotStorico: getSnapshotStorico,
-    cercaSfrido: cercaSfrido
+    cercaSfrido: cercaSfrido,
+    getReportGiacenze: getReportGiacenze,
+    getReportMovimenti: getReportMovimenti,
+    getSchedaProdotto: getSchedaProdotto,
+    getReportRiepilogoMagazzini: getReportRiepilogoMagazzini
   };
 
 })();
