@@ -1,5 +1,5 @@
 // sw.js — Service Worker F4 Magazzino
-var CACHE_NAME = "f4mag-v1";
+var CACHE_NAME = "f4mag-v3";
 var ASSETS = [
   "./index.html",
   "./css/style.css",
@@ -25,7 +25,10 @@ self.addEventListener("install", function(e) {
 self.addEventListener("activate", function(e) {
   e.waitUntil(
     caches.keys().then(function(keys) {
-      return Promise.all(keys.filter(function(k) { return k !== CACHE_NAME; }).map(function(k) { return caches.delete(k); }));
+      return Promise.all(
+        keys.filter(function(k) { return k !== CACHE_NAME; })
+            .map(function(k) { return caches.delete(k); })
+      );
     })
   );
   self.clients.claim();
@@ -33,7 +36,6 @@ self.addEventListener("activate", function(e) {
 
 self.addEventListener("fetch", function(e) {
   var url = e.request.url;
-  // Non cachare le chiamate API
   if (url.indexOf("script.google.com") !== -1) {
     e.respondWith(fetch(e.request));
     return;
