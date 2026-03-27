@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080C18">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="F4 Magazzino">
+  <title>F4 Magazzino</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app-shell">
+
+  <!-- TOP BAR -->
+  <header id="top-bar">
+    <button id="hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="app-logo">
+      <img src="icons/icon-192.png" alt="F4">
+      <span class="app-title">F4 Magazzino</span>
+    </div>
+    <div id="user-bar"></div>
+  </header>
+
+  <!-- SIDEBAR OVERLAY -->
+  <div id="sidebar-overlay" class="hidden"></div>
+
+  <!-- SIDEBAR -->
+  <nav id="sidebar" class="closed">
+    <div id="nav-menu"></div>
+  </nav>
+
+  <!-- MAIN -->
+  <main id="main-content">
+    <div id="view-container"></div>
+  </main>
+
+</div>
+
+<!-- SPINNER -->
+<div id="f4-spinner" class="hidden">
+  <div class="spinner-ring"></div>
+  <span class="spinner-msg">Caricamento...</span>
+</div>
+
+<!-- NOTIFICHE -->
+<div id="f4-notify"></div>
+
+<!-- MODAL -->
+<div id="f4-modal-overlay" class="hidden">
+  <div id="f4-modal">
+    <div id="f4-modal-header">
+      <span id="f4-modal-title"></span>
+      <button id="f4-modal-close">&#215;</button>
+    </div>
+    <div id="f4-modal-body"></div>
+    <div id="f4-modal-footer"></div>
+  </div>
+</div>
+
+<!-- SCRIPTS -->
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/views.js"></script>
+<script src="js/app.js"></script>
+
+<!-- SERVICE WORKER -->
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function() {
+    navigator.serviceWorker.register("sw.js").catch(function() {});
+  });
+}
+</script>
+
+</body>
+</html>
