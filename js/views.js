@@ -117,98 +117,138 @@ F4.views.dashboard = function(container) {
 };
 
 // ============================================================
-// VIEW: ANAGRAFICA PRODOTTI
+// VIEW: ANAGRAFICA PRODOTTI — Filtri a cascata
 // ============================================================
 F4.views.anagrafica = function(container) {
   container.innerHTML =
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#128196; Anagrafica Prodotti</h2>" +
     "</div>" +
-    "<div class=\"toolbar\" style=\"flex-wrap:wrap;gap:0.5rem;\">" +
-      "<input id=\"anag-q\" class=\"f4-input\" style=\"min-width:160px;flex:1\" placeholder=\"Cerca libera...\">" +
-      "<select id=\"anag-tip\" class=\"f4-input select-sm\">" +
-        "<option value=\"\">Tutte le tipologie</option>" +
-        "<option>Piatta PVC</option>" +
-        "<option>Piatta PVC c/incisione</option>" +
-        "<option>Piatta Alluminio</option>" +
-        "<option>Angolare PVC</option>" +
-        "<option>Angolare Alluminio</option>" +
-        "<option>Angolare PVC Espanso</option>" +
-        "<option>Aggancio Ang. PVC Esp.</option>" +
-        "<option>Squadretta PVC Esp.</option>" +
-        "<option>Coprifuga Legno Impl.</option>" +
-      "</select>" +
-      "<select id=\"anag-mat\" class=\"f4-input select-sm\">" +
-        "<option value=\"\">Tutti i materiali</option>" +
-        "<option value=\"PVC\">PVC</option>" +
-        "<option value=\"Alluminio\">Alluminio</option>" +
-        "<option value=\"PVC Espanso\">PVC Espanso</option>" +
-        "<option value=\"Legno/Alluminio\">Legno/Alluminio</option>" +
-      "</select>" +
-      "<input id=\"anag-mis\" class=\"f4-input select-sm\" placeholder=\"Misura es. 30/3\">" +
-      "<input id=\"anag-fam\" class=\"f4-input select-sm\" placeholder=\"Famiglia colore\">" +
-      "<input id=\"anag-col\" class=\"f4-input select-sm\" placeholder=\"Colore es. DP001\">" +
-      "<button id=\"anag-cerca\" class=\"btn btn-primary\">Cerca</button>" +
-      "<button id=\"anag-reset\" class=\"btn btn-ghost\">Reset</button>" +
+    "<div class=\"anag-filters glass\" style=\"padding:1rem;margin-bottom:1rem;\">" +
+      "<div class=\"form-grid\">" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Tipologia</label>" +
+          "<select id=\"f-tip\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Materiale</label>" +
+          "<select id=\"f-mat\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Cod. Internorm</label>" +
+          "<select id=\"f-cod\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Misura</label>" +
+          "<select id=\"f-mis\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Famiglia Colore</label>" +
+          "<select id=\"f-fam\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Colore</label>" +
+          "<select id=\"f-col\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+      "</div>" +
+      "<div style=\"margin-top:0.75rem;\">" +
+        "<button id=\"anag-reset\" class=\"btn btn-ghost\">&#8635; Reset filtri</button>" +
+      "</div>" +
     "</div>" +
     "<div id=\"anag-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
   var allProdotti = [];
+  var IDS   = ["f-tip","f-mat","f-cod","f-mis","f-fam","f-col"];
+  var CAMPI = ["categoria","formaMateriale","codiceInternorm","dimensioniHxlxsp","famigliaColore","codiceColore"];
 
-  function normalizzaMisura(v) {
-    if (!v) return "";
-    var s = v.toString();
-    if (s.indexOf("T") > 0 && s.length > 15) return "(vedi DB)";
-    return s;
+  function val(id) {
+    var el = document.getElementById(id);
+    return el ? el.value : "";
   }
 
-  function caricaProdotti() {
-    F4.ui.showSpinner("Caricamento prodotti...");
-    F4.api.getProdotti({ stato: "Attivo" }, function(err, res) {
-      F4.ui.hideSpinner();
-      if (err || !res || !res.success) {
-        document.getElementById("anag-list").innerHTML = F4.ui.renderTabellaVuota("Errore caricamento");
-        return;
-      }
-      allProdotti = res.data || [];
-      applicaFiltri();
-    });
+  function unique(arr) {
+    var seen = {};
+    return arr.filter(function(v) {
+      if (!v || seen[v]) return false;
+      seen[v] = true; return true;
+    }).sort();
   }
 
-  function applicaFiltri() {
-    var q   = (document.getElementById("anag-q").value   || "").trim().toLowerCase();
-    var tip = (document.getElementById("anag-tip").value  || "").trim().toLowerCase();
-    var mat = (document.getElementById("anag-mat").value  || "").trim().toLowerCase();
-    var mis = (document.getElementById("anag-mis").value  || "").trim().toLowerCase();
-    var fam = (document.getElementById("anag-fam").value  || "").trim().toLowerCase();
-    var col = (document.getElementById("anag-col").value  || "").trim().toLowerCase();
-
-    var filtrati = allProdotti.filter(function(p) {
-      if (tip && (p.categoria        || "").toLowerCase().indexOf(tip) === -1) return false;
-      if (mat && (p.formaMateriale   || "").toLowerCase().indexOf(mat) === -1) return false;
-      if (mis && (p.dimensioniHxlxsp || "").toLowerCase().indexOf(mis) === -1) return false;
-      if (fam && (p.famigliaColore   || "").toLowerCase().indexOf(fam) === -1) return false;
-      if (col && (p.codiceColore     || "").toLowerCase().indexOf(col) === -1) return false;
-      if (q) {
-        var hay = ((p.descrizioneCompleta || "") + " " + (p.codiceInternorm || "") + " " + (p.codiceColore || "")).toLowerCase();
-        if (hay.indexOf(q) === -1) return false;
+  function subsetFino(idx) {
+    return allProdotti.filter(function(p) {
+      for (var i = 0; i < idx; i++) {
+        var v = val(IDS[i]);
+        if (v && (p[CAMPI[i]] || "") !== v) return false;
       }
       return true;
     });
+  }
 
+  function popolaSel(id, values, keepVal) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var curr = (keepVal !== undefined) ? keepVal : sel.value;
+    sel.innerHTML = "<option value=\"\">Tutti</option>";
+    values.forEach(function(v) {
+      var opt = document.createElement("option");
+      opt.value = v; opt.textContent = v;
+      if (v === curr) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function onFiltroChange(idx) {
+    for (var j = idx + 1; j < IDS.length; j++) {
+      var base = subsetFino(j);
+      var vals = unique(base.map(function(p) { return p[CAMPI[j]] || ""; }).filter(Boolean));
+      var currVal = val(IDS[j]);
+      if (currVal && vals.indexOf(currVal) === -1) currVal = "";
+      popolaSel(IDS[j], vals, currVal);
+    }
+    renderTabella();
+  }
+
+  function inizializzaFiltri() {
+    IDS.forEach(function(id, i) {
+      var vals = unique(allProdotti.map(function(p) { return p[CAMPI[i]] || ""; }).filter(Boolean));
+      popolaSel(id, vals, "");
+      document.getElementById(id).addEventListener("change", function() {
+        onFiltroChange(i);
+      });
+    });
+    renderTabella();
+  }
+
+  function filtraCorrente() {
+    return allProdotti.filter(function(p) {
+      for (var i = 0; i < IDS.length; i++) {
+        var v = val(IDS[i]);
+        if (v && (p[CAMPI[i]] || "") !== v) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderTabella() {
     var el = document.getElementById("anag-list");
     if (!el) return;
-    if (filtrati.length === 0) { el.innerHTML = F4.ui.renderTabellaVuota("Nessun prodotto trovato"); return; }
-
+    var filtrati = filtraCorrente();
+    if (filtrati.length === 0) {
+      el.innerHTML = F4.ui.renderTabellaVuota("Nessun prodotto trovato con i filtri selezionati");
+      return;
+    }
     var html = "<div class=\"table-wrap\"><table class=\"f4-table\">" +
-      "<thead><tr><th>ID</th><th>Cod.Internorm</th><th>Tipologia</th><th>Materiale</th><th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th></tr></thead><tbody>";
+      "<thead><tr>" +
+      "<th>ID</th><th>Cod.Internorm</th><th>Tipologia</th><th>Materiale</th>" +
+      "<th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th>" +
+      "</tr></thead><tbody>";
     filtrati.forEach(function(p) {
       html += "<tr>" +
         "<td><span class=\"badge\">" + F4.ui.esc(p.idProdotto) + "</span></td>" +
         "<td><span class=\"badge badge-blue\">" + F4.ui.esc(p.codiceInternorm || "") + "</span></td>" +
         "<td>" + F4.ui.esc(p.categoria) + "</td>" +
         "<td>" + F4.ui.esc(p.formaMateriale) + "</td>" +
-        "<td>" + F4.ui.esc(normalizzaMisura(p.dimensioniHxlxsp)) + "</td>" +
+        "<td>" + F4.ui.esc(p.dimensioniHxlxsp || "") + "</td>" +
         "<td>" + F4.ui.esc(p.famigliaColore || "") + "</td>" +
         "<td><span class=\"colore-badge\">" + F4.ui.esc(p.codiceColore) + "</span></td>" +
         "<td>" + F4.ui.esc(p.unitaMisuraUm) + "</td>" +
@@ -219,17 +259,21 @@ F4.views.anagrafica = function(container) {
     el.innerHTML = html;
   }
 
-  document.getElementById("anag-cerca").addEventListener("click", applicaFiltri);
   document.getElementById("anag-reset").addEventListener("click", function() {
-    ["anag-q","anag-tip","anag-mat","anag-mis","anag-fam","anag-col"].forEach(function(id) {
-      document.getElementById(id).value = "";
-    });
-    applicaFiltri();
+    IDS.forEach(function(id) { document.getElementById(id).value = ""; });
+    inizializzaFiltri();
   });
-  document.getElementById("anag-q").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") applicaFiltri();
+
+  F4.ui.showSpinner("Caricamento prodotti...");
+  F4.api.getProdotti({ stato: "Attivo" }, function(err, res) {
+    F4.ui.hideSpinner();
+    if (err || !res || !res.success) {
+      document.getElementById("anag-list").innerHTML = F4.ui.renderTabellaVuota("Errore caricamento");
+      return;
+    }
+    allProdotti = res.data || [];
+    inizializzaFiltri();
   });
-  caricaProdotti();
 };
 
 // ============================================================
