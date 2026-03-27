@@ -1128,3 +1128,167 @@ F4.views.impostazioni = function(container) {
 };
 
 window.F4 = F4;
+
+// ============================================================
+// VIEW: REPORTISTICA ISO
+// ============================================================
+F4.views.reportistica = function(container) {
+  var vediPrezzi = F4.auth.canDo("vediPrezzi");
+  var vediAudit  = F4.auth.canDo("audit");
+
+  container.innerHTML =
+    "<div class=\"view-header\">" +
+      "<h2 class=\"view-title\">&#128438; Reportistica ISO</h2>" +
+      "<p class=\"view-sub\">Genera report personalizzati in formato ISO con cartiglio</p>" +
+    "</div>" +
+
+    "<div class=\"op-card glass\">" +
+      "<div class=\"section-title\">Seleziona Tipo Report</div>" +
+      "<div class=\"form-grid\">" +
+        "<div class=\"form-group full-width\">" +
+          "<label class=\"f4-label\">Tipo Report</label>" +
+          "<select id=\"rpt-tipo\" class=\"f4-input\">" +
+            "<option value=\"\">Seleziona...</option>" +
+            "<option value=\"GIACENZE\">Inventario Giacenze</option>" +
+            (vediAudit ? "<option value=\"MOVIMENTI\">Storico Movimenti</option>" : "") +
+            "<option value=\"SCHEDA_PRODOTTO\">Scheda Prodotto</option>" +
+            "<option value=\"RIEPILOGO_MAGAZZINI\">Riepilogo Magazzini</option>" +
+          "</select>" +
+        "</div>" +
+      "</div>" +
+      "<div id=\"rpt-filtri\" style=\"margin-top:1rem;\"></div>" +
+      "<div class=\"form-actions\" style=\"margin-top:1rem;\">" +
+        "<button id=\"rpt-genera\" class=\"btn btn-primary\" disabled>&#128438; Genera Anteprima e PDF</button>" +
+      "</div>" +
+    "</div>";
+
+  var magazzini = [];
+  F4.api.getMagazzini(function(err, res) {
+    if (!err && res && res.success) magazzini = res.data || [];
+  });
+
+  document.getElementById("rpt-tipo").addEventListener("change", function() {
+    var tipo = this.value;
+    document.getElementById("rpt-genera").disabled = !tipo;
+    _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit);
+  });
+
+  document.getElementById("rpt-genera").addEventListener("click", function() {
+    _eseguiReport(magazzini);
+  });
+};
+
+function _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit) {
+  var el = document.getElementById("rpt-filtri");
+  if (!el) return;
+
+  if (!tipo) { el.innerHTML = ""; return; }
+
+  var html = "<div class=\"section-title\" style=\"margin-top:0;\">Filtri Report</div><div class=\"form-grid\">";
+
+  if (tipo === "GIACENZE") {
+    html += "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Magazzino</label>" +
+      "<select id=\"rpt-f-mag\" class=\"f4-input\"><option value=\"\">Tutti</option>" +
+      magazzini.map(function(m) { return "<option value=\"" + m.idMagazzino + "\">" + m.nomeMagazzino + "</option>"; }).join("") +
+      "</select></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Tipo Pezzo</label>" +
+      "<select id=\"rpt-f-tipo\" class=\"f4-input\">" +
+        "<option value=\"\">Tutti</option>" +
+        "<option value=\"Barra\">Barre</option>" +
+        "<option value=\"Residuo\">Residui</option>" +
+      "</select></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Solo giacenze positive</label>" +
+      "<select id=\"rpt-f-attivi\" class=\"f4-input\">" +
+        "<option value=\"true\">Si (predefinito)</option>" +
+        "<option value=\"false\">No (includi vuoti)</option>" +
+      "</select></div>";
+  }
+
+  if (tipo === "MOVIMENTI" && vediAudit) {
+    html += "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Data Inizio (gg/mm/aaaa)</label>" +
+      "<input id=\"rpt-f-dstart\" type=\"date\" class=\"f4-input\"></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Data Fine (gg/mm/aaaa)</label>" +
+      "<input id=\"rpt-f-dend\" type=\"date\" class=\"f4-input\"></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Tipo Movimento</label>" +
+      "<select id=\"rpt-f-tmov\" class=\"f4-input\">" +
+        "<option value=\"\">Tutti</option>" +
+        "<option value=\"CARICO\">Carico</option>" +
+        "<option value=\"SCARICO\">Scarico</option>" +
+        "<option value=\"TRASFERIMENTO\">Trasferimento</option>" +
+        "<option value=\"RETTIFICA\">Rettifica</option>" +
+      "</select></div>";
+  }
+
+  if (tipo === "SCHEDA_PRODOTTO") {
+    html += "<div class=\"form-group full-width\">" +
+      "<label class=\"f4-label\">ID Prodotto *</label>" +
+      "<input id=\"rpt-f-prod\" class=\"f4-input\" placeholder=\"es. PRD-00001\"></div>";
+  }
+
+  html += "</div>";
+  el.innerHTML = html;
+}
+
+function _eseguiReport(magazzini) {
+  var tipo = document.getElementById("rpt-tipo").value;
+  if (!tipo) { F4.ui.err("Seleziona un tipo di report"); return; }
+
+  var params = {};
+
+  if (tipo === "GIACENZE") {
+    var magEl    = document.getElementById("rpt-f-mag");
+    var tipoEl   = document.getElementById("rpt-f-tipo");
+    var attiviEl = document.getElementById("rpt-f-attivi");
+    if (magEl && magEl.value)    params.idMagazzino = magEl.value;
+    if (tipoEl && tipoEl.value)  params.tipoPezzo   = tipoEl.value;
+    if (attiviEl)                params.soloAttivi  = attiviEl.value;
+  }
+
+  if (tipo === "MOVIMENTI") {
+    var dstartEl = document.getElementById("rpt-f-dstart");
+    var dendEl   = document.getElementById("rpt-f-dend");
+    var tmovEl   = document.getElementById("rpt-f-tmov");
+    if (dstartEl && dstartEl.value) {
+      var ps = dstartEl.value.split("-");
+      params.dataInizio = ps[2] + "/" + ps[1] + "/" + ps[0];
+    }
+    if (dendEl && dendEl.value) {
+      var pe = dendEl.value.split("-");
+      params.dataFine = pe[2] + "/" + pe[1] + "/" + pe[0];
+    }
+    if (tmovEl && tmovEl.value) params.tipoMovimento = tmovEl.value;
+  }
+
+  if (tipo === "SCHEDA_PRODOTTO") {
+    var prodEl = document.getElementById("rpt-f-prod");
+    if (!prodEl || !prodEl.value.trim()) { F4.ui.err("Inserisci l'ID Prodotto"); return; }
+    params.idProdotto = prodEl.value.trim();
+  }
+
+  var actionMap = {
+    "GIACENZE":            "getReportGiacenze",
+    "MOVIMENTI":           "getReportMovimenti",
+    "SCHEDA_PRODOTTO":     "getSchedaProdotto",
+    "RIEPILOGO_MAGAZZINI": "getReportRiepilogoMagazzini"
+  };
+
+  F4.ui.showSpinner("Generazione report...");
+  F4.api.call(actionMap[tipo], params, function(err, res) {
+    F4.ui.hideSpinner();
+    if (err || !res || !res.success) {
+      F4.ui.err("Errore: " + (res ? res.error : (err ? err.message : "sconosciuto")));
+      return;
+    }
+    F4.ui.ok("Report generato — apertura anteprima...");
+    setTimeout(function() { F4.report.apriAnteprima(res); }, 300);
+  });
+}
+
+
+window.F4 = F4;
