@@ -29,16 +29,46 @@ F4.auth = (function() {
   function canDo(permesso) {
     var ruolo = getRuolo();
     var rbac = {
-      "Admin":      { vediPrezzi: true,  gestioneUtenti: true,  gestioneListini: true,  movimenti: true, rettifica: true,  audit: true,  dashboard: true,  snapshotStorico: true },
-      "Management": { vediPrezzi: true,  gestioneUtenti: false, gestioneListini: false, movimenti: true, rettifica: false, audit: true,  dashboard: true,  snapshotStorico: true },
-      "Operativo":  { vediPrezzi: false, gestioneUtenti: false, gestioneListini: false, movimenti: true, rettifica: false, audit: false, dashboard: false, snapshotStorico: false }
+      "Admin": {
+        vediPrezzi:        true,
+        gestioneUtenti:    true,
+        gestioneListini:   true,
+        gestioneMagazzini: true,
+        movimenti:         true,
+        rettifica:         true,
+        audit:             true,
+        dashboard:         true,
+        snapshotStorico:   true
+      },
+      "Management": {
+        vediPrezzi:        true,
+        gestioneUtenti:    false,
+        gestioneListini:   false,
+        gestioneMagazzini: true,
+        movimenti:         true,
+        rettifica:         false,
+        audit:             true,
+        dashboard:         true,
+        snapshotStorico:   true
+      },
+      "Operativo": {
+        vediPrezzi:        false,
+        gestioneUtenti:    false,
+        gestioneListini:   false,
+        gestioneMagazzini: false,
+        movimenti:         true,
+        rettifica:         false,
+        audit:             false,
+        dashboard:         false,
+        snapshotStorico:   false
+      }
     };
     return rbac[ruolo] ? (rbac[ruolo][permesso] === true) : false;
   }
 
-  function login(email, password, callback) {
+  function login(username, password, callback) {
     F4.ui.showSpinner("Accesso in corso...");
-    F4.api.login(email, password, function(err, res) {
+    F4.api.login(username, password, function(err, res) {
       F4.ui.hideSpinner();
       if (err || !res) {
         callback("Errore di rete. Riprova.");
