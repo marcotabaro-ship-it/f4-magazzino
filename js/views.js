@@ -16,8 +16,8 @@ F4.views.login = function(container) {
         "<h1 class=\"login-title\">F4 Magazzino</h1>" +
         "<p class=\"login-sub\">Gestionale Coprifili Internorm</p>" +
         "<div class=\"form-group\">" +
-          "<label class=\"f4-label\">Email</label>" +
-          "<input id=\"l-email\" type=\"email\" class=\"f4-input\" placeholder=\"nome@finestra4.it\" autocomplete=\"email\">" +
+          "<label class=\"f4-label\">Username</label>" +
+          "<input id=\"l-email\" type=\"text\" class=\"f4-input\" placeholder=\"es. marco\" autocomplete=\"username\">" +
         "</div>" +
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Password</label>" +
@@ -33,7 +33,7 @@ F4.views.login = function(container) {
     var pass  = document.getElementById("l-pass").value;
     var errEl = document.getElementById("l-err");
     errEl.classList.add("hidden");
-    if (!email || !pass) { errEl.textContent = "Compila tutti i campi"; errEl.classList.remove("hidden"); return; }
+    if (!email || !pass) { errEl.textContent = "Compila username e password"; errEl.classList.remove("hidden"); return; }
     F4.auth.login(email, pass, function(errMsg) {
       if (errMsg) { errEl.textContent = errMsg; errEl.classList.remove("hidden"); return; }
       F4.router.go("dashboard");
@@ -819,7 +819,7 @@ F4.views.utenti = function(container) {
         html += "<tr>" +
           "<td><span class=\"badge\">" + F4.ui.esc(u.idUtente) + "</span></td>" +
           "<td>" + F4.ui.esc(u.nome) + " " + F4.ui.esc(u.cognome) + "</td>" +
-          "<td>" + F4.ui.esc(u.email) + "</td>" +
+          "<td>" + F4.ui.esc(u.username || u.email || "") + "</td>" +
           "<td><span class=\"badge " + ruoloClass + "\">" + F4.ui.esc(u.ruolo) + "</span></td>" +
           "<td>" + F4.ui.esc(u.stato) + "</td>" +
           "<td><button class=\"btn btn-sm btn-secondary\" onclick=\"F4.views._editUtente('" + F4.ui.esc(u.idUtente) + "');\">Modifica</button></td>" +
@@ -851,7 +851,7 @@ F4.views.utenti = function(container) {
     var html = "<div class=\"form-grid\">" +
       "<div class=\"form-group\"><label>Nome</label><input id=\"nu-nome\" class=\"f4-input\"></div>" +
       "<div class=\"form-group\"><label>Cognome</label><input id=\"nu-cog\" class=\"f4-input\"></div>" +
-      "<div class=\"form-group\"><label>Email</label><input id=\"nu-email\" type=\"email\" class=\"f4-input\"></div>" +
+      "<div class=\"form-group\"><label>Username</label><input id=\"nu-email\" type=\"text\" class=\"f4-input\" placeholder=\"es. mario\"></div>" +
       "<div class=\"form-group\"><label>Cellulare</label><input id=\"nu-cell\" class=\"f4-input\"></div>" +
       "<div class=\"form-group\"><label>Ruolo</label><select id=\"nu-ruolo\" class=\"f4-input\"><option>Admin</option><option selected>Management</option><option>Operativo</option></select></div>" +
       "<div class=\"form-group\"><label>Password iniziale</label><input id=\"nu-pass\" type=\"password\" class=\"f4-input\"></div>" +
@@ -939,7 +939,7 @@ F4.views.impostazioni = function(container) {
     "<div class=\"op-card glass\">" +
       "<div class=\"section-title\">Profilo Utente</div>" +
       "<p><strong>Nome:</strong> " + F4.ui.esc((utente ? utente.nome + " " + utente.cognome : "—")) + "</p>" +
-      "<p><strong>Email:</strong> " + F4.ui.esc((utente ? utente.email : "—")) + "</p>" +
+      "<p><strong>Username:</strong> " + F4.ui.esc((utente ? (utente.username || utente.email || "—") : "—")) + "</p>" +
       "<p><strong>Ruolo:</strong> " + F4.ui.esc((utente ? utente.ruolo : "—")) + "</p>" +
       "<div class=\"section-title\" style=\"margin-top:1.5rem\">Cambia Password</div>" +
       "<div class=\"form-group\"><label class=\"f4-label\">Nuova Password</label>" +
