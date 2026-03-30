@@ -277,9 +277,11 @@ F4.views.anagrafica = function(container) {
 };
 
 // ============================================================
-// VIEW: GIACENZE
+// VIEW: GIACENZE E LOTTI — con dati prodotto enriched
 // ============================================================
 F4.views.giacenze = function(container) {
+  var vediPrezzi = F4.auth.canDo("vediPrezzi");
+
   container.innerHTML =
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#128197; Giacenze e Lotti</h2>" +
@@ -295,8 +297,6 @@ F4.views.giacenze = function(container) {
     "</div>" +
     "<div id=\"giac-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
-  var vediPrezzi = F4.auth.canDo("vediPrezzi");
-
   F4.api.getMagazzini(function(err, res) {
     if (err || !res || !res.success) return;
     var sel = document.getElementById("giac-mag");
@@ -307,13 +307,14 @@ F4.views.giacenze = function(container) {
       opt.textContent = m.nomeMagazzino;
       sel.appendChild(opt);
     });
+    sel.addEventListener("change", caricaGiacenze);
   });
 
   function caricaGiacenze() {
-    var mag  = document.getElementById("giac-mag").value;
-    var tipo = document.getElementById("giac-tipo").value;
+    var mag  = document.getElementById("giac-mag") ? document.getElementById("giac-mag").value : "";
+    var tipo = document.getElementById("giac-tipo") ? document.getElementById("giac-tipo").value : "";
     var filtri = {};
-    if (mag)  filtri.idMagazzino = mag;
+    if (mag) filtri.idMagazzino = mag;
     F4.ui.showSpinner("Caricamento giacenze...");
     F4.api.getGiacenze(filtri, function(err, res) {
       F4.ui.hideSpinner();
@@ -325,32 +326,63 @@ F4.views.giacenze = function(container) {
       }
       var rows = (res.data || []).filter(function(r) {
         return !tipo || r.tipoPezzo === tipo;
+      }).filter(function(r) {
+        return (r.quantitaPz || 0) > 0;
       });
       if (rows.length === 0) {
         el.innerHTML = F4.ui.renderTabellaVuota("Nessuna giacenza trovata");
         return;
       }
-      var html = "<div class=\"table-wrap\"><table class=\"f4-table\">" +
-        "<thead><tr><th>Lotto</th><th>Prodotto</th><th>Magazzino</th><th>Tipo</th><th>Lungh. (ml)</th><th>Pezzi</th>";
-      if (vediPrezzi) html += "<th>Val. Unitario</th><th>Val. Totale</th>";
+
+      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+        "<th>Lotto</th>" +
+        "<th>ID Prodotto</th>" +
+        "<th>Cod.Int.</th>" +
+        "<th>Tipologia</th>" +
+        "<th>Materiale</th>" +
+        "<th>Misura</th>" +
+        "<th>Famiglia</th>" +
+        "<th>Colore</th>" +
+        "<th>U.M.</th>" +
+        "<th>Magazzino</th>" +
+        "<th>Tipo</th>" +
+        "<th>Pezzi</th>" +
+        "<th>Lungh.(ml)</th>";
+      if (vediPrezzi) {
+        html += "<th>Val.Unit.(&#8364;/ml)</th><th>Val.Totale</th>";
+      }
       html += "<th>Data Carico</th></tr></thead><tbody>";
+
       rows.forEach(function(r) {
         var tipoClass = r.tipoPezzo === "Residuo" ? "badge-warn" : "badge-ok";
         html += "<tr>" +
           "<td><span class=\"badge\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
-          "<td>" + F4.ui.esc(r.idProdotto) + "</td>" +
-          "<td>" + F4.ui.esc(r.idMagazzino) + "</td>" +
+          "<td><span class=\"badge\">" + F4.ui.esc(r.idProdotto) + "</span></td>" +
+          "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm || "") + "</span></td>" +
+          "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
+          "<td>" + F4.ui.esc(r.formaMateriale || "") + "</td>" +
+          "<td>" + F4.ui.esc(r.dimensioni || "") + "</td>" +
+          "<td>" + F4.ui.esc(r.famigliaColore || "") + "</td>" +
+          "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore || "") + "</span></td>" +
+          "<td>" + F4.ui.esc(r.unitaMisura || "ml") + "</td>" +
+          "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
           "<td><span class=\"badge " + tipoClass + "\">" + F4.ui.esc(r.tipoPezzo) + "</span></td>" +
-          "<td>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</td>" +
-          "<td>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</td>";
+          "<td><strong>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</strong></td>" +
+          "<td>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</td>";
         if (vediPrezzi) {
           html += "<td>" + F4.ui.fmtEuro(r.valoreUnitario) + "</td>" +
-                  "<td>" + F4.ui.fmtEuro(r.valoreTotaleLotto) + "</td>";
+                  "<td><strong>" + F4.ui.fmtEuro(r.valoreTotaleLotto) + "</strong></td>";
         }
         html += "<td>" + F4.ui.fmtData(r.dataCarico) + "</td></tr>";
       });
+
+      var totPezzi = rows.reduce(function(s, r) { return s + (r.quantitaPz || 0); }, 0);
       html += "</tbody></table></div>";
-      html += "<div class=\"table-footer\">Lotti trovati: " + rows.length + "</div>";
+      html += "<div class=\"table-footer\">Lotti: " + rows.length + " &nbsp;|&nbsp; Pezzi totali: " + F4.ui.fmtNum(totPezzi, 0) + "</div>";
+      if (vediPrezzi) {
+        var totValore = rows.reduce(function(s, r) { return s + (r.valoreTotaleLotto || 0); }, 0);
+        html += "<div class=\"table-footer\">Valore totale: <strong>" + F4.ui.fmtEuro(totValore) + "</strong></div>";
+      }
       el.innerHTML = html;
     });
   }
@@ -1126,169 +1158,5 @@ F4.views.impostazioni = function(container) {
     });
   }
 };
-
-window.F4 = F4;
-
-// ============================================================
-// VIEW: REPORTISTICA ISO
-// ============================================================
-F4.views.reportistica = function(container) {
-  var vediPrezzi = F4.auth.canDo("vediPrezzi");
-  var vediAudit  = F4.auth.canDo("audit");
-
-  container.innerHTML =
-    "<div class=\"view-header\">" +
-      "<h2 class=\"view-title\">&#128438; Reportistica ISO</h2>" +
-      "<p class=\"view-sub\">Genera report personalizzati in formato ISO con cartiglio</p>" +
-    "</div>" +
-
-    "<div class=\"op-card glass\">" +
-      "<div class=\"section-title\">Seleziona Tipo Report</div>" +
-      "<div class=\"form-grid\">" +
-        "<div class=\"form-group full-width\">" +
-          "<label class=\"f4-label\">Tipo Report</label>" +
-          "<select id=\"rpt-tipo\" class=\"f4-input\">" +
-            "<option value=\"\">Seleziona...</option>" +
-            "<option value=\"GIACENZE\">Inventario Giacenze</option>" +
-            (vediAudit ? "<option value=\"MOVIMENTI\">Storico Movimenti</option>" : "") +
-            "<option value=\"SCHEDA_PRODOTTO\">Scheda Prodotto</option>" +
-            "<option value=\"RIEPILOGO_MAGAZZINI\">Riepilogo Magazzini</option>" +
-          "</select>" +
-        "</div>" +
-      "</div>" +
-      "<div id=\"rpt-filtri\" style=\"margin-top:1rem;\"></div>" +
-      "<div class=\"form-actions\" style=\"margin-top:1rem;\">" +
-        "<button id=\"rpt-genera\" class=\"btn btn-primary\" disabled>&#128438; Genera Anteprima e PDF</button>" +
-      "</div>" +
-    "</div>";
-
-  var magazzini = [];
-  F4.api.getMagazzini(function(err, res) {
-    if (!err && res && res.success) magazzini = res.data || [];
-  });
-
-  document.getElementById("rpt-tipo").addEventListener("change", function() {
-    var tipo = this.value;
-    document.getElementById("rpt-genera").disabled = !tipo;
-    _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit);
-  });
-
-  document.getElementById("rpt-genera").addEventListener("click", function() {
-    _eseguiReport(magazzini);
-  });
-};
-
-function _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit) {
-  var el = document.getElementById("rpt-filtri");
-  if (!el) return;
-
-  if (!tipo) { el.innerHTML = ""; return; }
-
-  var html = "<div class=\"section-title\" style=\"margin-top:0;\">Filtri Report</div><div class=\"form-grid\">";
-
-  if (tipo === "GIACENZE") {
-    html += "<div class=\"form-group\">" +
-      "<label class=\"f4-label\">Magazzino</label>" +
-      "<select id=\"rpt-f-mag\" class=\"f4-input\"><option value=\"\">Tutti</option>" +
-      magazzini.map(function(m) { return "<option value=\"" + m.idMagazzino + "\">" + m.nomeMagazzino + "</option>"; }).join("") +
-      "</select></div>" +
-      "<div class=\"form-group\">" +
-      "<label class=\"f4-label\">Tipo Pezzo</label>" +
-      "<select id=\"rpt-f-tipo\" class=\"f4-input\">" +
-        "<option value=\"\">Tutti</option>" +
-        "<option value=\"Barra\">Barre</option>" +
-        "<option value=\"Residuo\">Residui</option>" +
-      "</select></div>" +
-      "<div class=\"form-group\">" +
-      "<label class=\"f4-label\">Solo giacenze positive</label>" +
-      "<select id=\"rpt-f-attivi\" class=\"f4-input\">" +
-        "<option value=\"true\">Si (predefinito)</option>" +
-        "<option value=\"false\">No (includi vuoti)</option>" +
-      "</select></div>";
-  }
-
-  if (tipo === "MOVIMENTI" && vediAudit) {
-    html += "<div class=\"form-group\">" +
-      "<label class=\"f4-label\">Data Inizio (gg/mm/aaaa)</label>" +
-      "<input id=\"rpt-f-dstart\" type=\"date\" class=\"f4-input\"></div>" +
-      "<div class=\"form-group\">" +
-      "<label class=\"f4-label\">Data Fine (gg/mm/aaaa)</label>" +
-      "<input id=\"rpt-f-dend\" type=\"date\" class=\"f4-input\"></div>" +
-      "<div class=\"form-group\">" +
-      "<label class=\"f4-label\">Tipo Movimento</label>" +
-      "<select id=\"rpt-f-tmov\" class=\"f4-input\">" +
-        "<option value=\"\">Tutti</option>" +
-        "<option value=\"CARICO\">Carico</option>" +
-        "<option value=\"SCARICO\">Scarico</option>" +
-        "<option value=\"TRASFERIMENTO\">Trasferimento</option>" +
-        "<option value=\"RETTIFICA\">Rettifica</option>" +
-      "</select></div>";
-  }
-
-  if (tipo === "SCHEDA_PRODOTTO") {
-    html += "<div class=\"form-group full-width\">" +
-      "<label class=\"f4-label\">ID Prodotto *</label>" +
-      "<input id=\"rpt-f-prod\" class=\"f4-input\" placeholder=\"es. PRD-00001\"></div>";
-  }
-
-  html += "</div>";
-  el.innerHTML = html;
-}
-
-function _eseguiReport(magazzini) {
-  var tipo = document.getElementById("rpt-tipo").value;
-  if (!tipo) { F4.ui.err("Seleziona un tipo di report"); return; }
-
-  var params = {};
-
-  if (tipo === "GIACENZE") {
-    var magEl    = document.getElementById("rpt-f-mag");
-    var tipoEl   = document.getElementById("rpt-f-tipo");
-    var attiviEl = document.getElementById("rpt-f-attivi");
-    if (magEl && magEl.value)    params.idMagazzino = magEl.value;
-    if (tipoEl && tipoEl.value)  params.tipoPezzo   = tipoEl.value;
-    if (attiviEl)                params.soloAttivi  = attiviEl.value;
-  }
-
-  if (tipo === "MOVIMENTI") {
-    var dstartEl = document.getElementById("rpt-f-dstart");
-    var dendEl   = document.getElementById("rpt-f-dend");
-    var tmovEl   = document.getElementById("rpt-f-tmov");
-    if (dstartEl && dstartEl.value) {
-      var ps = dstartEl.value.split("-");
-      params.dataInizio = ps[2] + "/" + ps[1] + "/" + ps[0];
-    }
-    if (dendEl && dendEl.value) {
-      var pe = dendEl.value.split("-");
-      params.dataFine = pe[2] + "/" + pe[1] + "/" + pe[0];
-    }
-    if (tmovEl && tmovEl.value) params.tipoMovimento = tmovEl.value;
-  }
-
-  if (tipo === "SCHEDA_PRODOTTO") {
-    var prodEl = document.getElementById("rpt-f-prod");
-    if (!prodEl || !prodEl.value.trim()) { F4.ui.err("Inserisci l'ID Prodotto"); return; }
-    params.idProdotto = prodEl.value.trim();
-  }
-
-  var actionMap = {
-    "GIACENZE":            "getReportGiacenze",
-    "MOVIMENTI":           "getReportMovimenti",
-    "SCHEDA_PRODOTTO":     "getSchedaProdotto",
-    "RIEPILOGO_MAGAZZINI": "getReportRiepilogoMagazzini"
-  };
-
-  F4.ui.showSpinner("Generazione report...");
-  F4.api.call(actionMap[tipo], params, function(err, res) {
-    F4.ui.hideSpinner();
-    if (err || !res || !res.success) {
-      F4.ui.err("Errore: " + (res ? res.error : (err ? err.message : "sconosciuto")));
-      return;
-    }
-    F4.ui.ok("Report generato — apertura anteprima...");
-    setTimeout(function() { F4.report.apriAnteprima(res); }, 300);
-  });
-}
-
 
 window.F4 = F4;
