@@ -1925,9 +1925,114 @@ function _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit) {
   }
 
   if (tipo === "SCHEDA_PRODOTTO") {
-    html += "<div class=\"form-group full-width\">" +
-      "<label class=\"f4-label\">ID Prodotto *</label>" +
-      "<input id=\"rpt-f-prod\" class=\"f4-input\" placeholder=\"es. PRD-00001\"></div>";
+    html += "</div>"; // chiude form-grid
+    html += "<div class=\"section-title\" style=\"margin-top:1rem;\">Seleziona Prodotto</div>";
+    html += "<div class=\"form-grid\">" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Tipologia</label>" +
+        "<select id=\"rpt-f-tip\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Materiale</label>" +
+        "<select id=\"rpt-f-mat\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Cod. Internorm</label>" +
+        "<select id=\"rpt-f-cod\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Misura</label>" +
+        "<select id=\"rpt-f-mis\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Famiglia Colore</label>" +
+        "<select id=\"rpt-f-fam\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Colore *</label>" +
+        "<select id=\"rpt-f-col\" class=\"f4-input\"><option value=\"\">Seleziona colore</option></select>" +
+      "</div>" +
+    "</div>" +
+    "<div id=\"rpt-prod-selezionato\" style=\"margin-top:0.5rem;color:var(--accent-gold);font-weight:600;\"></div>";
+
+    el.innerHTML = html;
+
+    // Carica prodotti e inizializza filtri a cascata
+    var allProdotti = [];
+    var IDS_RPT = ["rpt-f-tip","rpt-f-mat","rpt-f-cod","rpt-f-mis","rpt-f-fam","rpt-f-col"];
+    var CAMPI_RPT = ["categoria","formaMateriale","codiceInternorm","dimensioniHxlxsp","famigliaColore","codiceColore"];
+
+    F4.api.getProdotti({stato: "Attivo"}, function(err, res) {
+      if (err || !res || !res.success) return;
+      allProdotti = res.data || [];
+
+      function uniqueRPT(arr) {
+        var seen = {};
+        return arr.filter(function(v) { if (!v || seen[v]) return false; seen[v] = true; return true; }).sort();
+      }
+
+      function valRPT(id) { var el2 = document.getElementById(id); return el2 ? el2.value : ""; }
+
+      function subsetRPT(idx) {
+        return allProdotti.filter(function(p) {
+          for (var i = 0; i < idx; i++) {
+            var v = valRPT(IDS_RPT[i]);
+            if (v && (p[CAMPI_RPT[i]] || "") !== v) return false;
+          }
+          return true;
+        });
+      }
+
+      function popolaRPT(id, vals, keepVal) {
+        var sel2 = document.getElementById(id);
+        if (!sel2) return;
+        var curr = keepVal !== undefined ? keepVal : sel2.value;
+        var isLast = (id === "rpt-f-col");
+        sel2.innerHTML = "<option value=\"\">Tutt" + (isLast ? "i" : "i") + "</option>";
+        vals.forEach(function(v) {
+          var opt = document.createElement("option");
+          opt.value = v; opt.textContent = v;
+          if (v === curr) opt.selected = true;
+          sel2.appendChild(opt);
+        });
+        if (isLast) aggiornaSelezionato();
+      }
+
+      function aggiornaSelezionato() {
+        var col = valRPT("rpt-f-col");
+        var tip = valRPT("rpt-f-tip");
+        var lbl = document.getElementById("rpt-prod-selezionato");
+        var btnR = document.getElementById("rpt-genera");
+        var matches = allProdotti.filter(function(p) {
+          if (tip && p.categoria !== tip) return false;
+          if (valRPT("rpt-f-mat") && p.formaMateriale !== valRPT("rpt-f-mat")) return false;
+          if (valRPT("rpt-f-cod") && (p.codiceInternorm||"") !== valRPT("rpt-f-cod")) return false;
+          if (valRPT("rpt-f-mis") && (p.dimensioniHxlxsp||"") !== valRPT("rpt-f-mis")) return false;
+          if (valRPT("rpt-f-fam") && p.famigliaColore !== valRPT("rpt-f-fam")) return false;
+          if (col && p.codiceColore !== col) return false;
+          return true;
+        });
+        if (lbl) lbl.textContent = matches.length > 0 ? (matches.length + " prodotto/i trovato/i — verranno generati tutti") : (col ? "Nessun prodotto trovato" : "");
+        if (btnR) btnR.disabled = (matches.length === 0);
+      }
+
+      IDS_RPT.forEach(function(id, i) {
+        var vals = uniqueRPT(allProdotti.map(function(p) { return p[CAMPI_RPT[i]] || ""; }).filter(Boolean));
+        popolaRPT(id, vals, "");
+        var sel2 = document.getElementById(id);
+        if (sel2) sel2.addEventListener("change", function() {
+          for (var j = i + 1; j < IDS_RPT.length; j++) {
+            var base = subsetRPT(j);
+            var vals2 = uniqueRPT(base.map(function(p) { return p[CAMPI_RPT[j]] || ""; }).filter(Boolean));
+            var curr = valRPT(IDS_RPT[j]);
+            if (curr && vals2.indexOf(curr) === -1) curr = "";
+            popolaRPT(IDS_RPT[j], vals2, curr);
+          }
+          aggiornaSelezionato();
+        });
+      });
+    });
+    return; // return early - innerHTML already set
   }
 
   html += "</div>";
@@ -1965,9 +2070,20 @@ function _eseguiReport(magazzini) {
   }
 
   if (tipo === "SCHEDA_PRODOTTO") {
-    var prodEl = document.getElementById("rpt-f-prod");
-    if (!prodEl || !prodEl.value.trim()) { F4.ui.err("Inserisci l'ID Prodotto"); return; }
-    params.idProdotto = prodEl.value.trim();
+    // Raccoglie tutti i prodotti che corrispondono ai filtri selezionati
+    var colore = document.getElementById("rpt-f-col") ? document.getElementById("rpt-f-col").value : "";
+    var tipRpt = document.getElementById("rpt-f-tip") ? document.getElementById("rpt-f-tip").value : "";
+    var matRpt = document.getElementById("rpt-f-mat") ? document.getElementById("rpt-f-mat").value : "";
+    var codRpt = document.getElementById("rpt-f-cod") ? document.getElementById("rpt-f-cod").value : "";
+    var misRpt = document.getElementById("rpt-f-mis") ? document.getElementById("rpt-f-mis").value : "";
+    var famRpt = document.getElementById("rpt-f-fam") ? document.getElementById("rpt-f-fam").value : "";
+    if (!tipRpt && !colore) { F4.ui.err("Seleziona almeno la Tipologia o il Colore"); return; }
+    if (tipRpt)  params.categoria       = tipRpt;
+    if (matRpt)  params.formaMateriale  = matRpt;
+    if (codRpt)  params.codiceInternorm = codRpt;
+    if (misRpt)  params.dimensioni      = misRpt;
+    if (famRpt)  params.famigliaColore  = famRpt;
+    if (colore)  params.codiceColore    = colore;
   }
 
   var actionMap = {
