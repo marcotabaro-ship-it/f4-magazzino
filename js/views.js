@@ -778,7 +778,7 @@ F4.views.trasferimento = function(container) {
       "<div class=\"form-actions\">" +
         "<button id=\"tra-btn\" class=\"btn btn-primary\" disabled>&#8644; Esegui Trasferimento Selezionati</button>" +
         "<button id=\"tra-deselect\" class=\"btn btn-ghost\">Deseleziona tutti</button>" +
-        "<button class=\"btn btn-ghost\" onclick=\"F4.router.go('dashboard')">Annulla</button>" +
+        "<button class=\"btn btn-ghost\" onclick=\"F4.router.go('dashboard')\">Annulla</button>" +
       "</div>" +
     "</div>" +
     "<div class=\"section-title\" style=\"margin-top:1.5rem\">Lotti Disponibili — clicca per selezionare</div>" +
