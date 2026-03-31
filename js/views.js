@@ -57,16 +57,24 @@ F4.views.dashboard = function(container) {
     "<div id=\"dash-content\"><div class=\"loading-placeholder\">Caricamento dashboard...</div></div>";
 
   F4.ui.showSpinner("Caricamento dashboard...");
-  F4.api.getDashboard(function(err, res) {
-    F4.ui.hideSpinner();
-    var el = document.getElementById("dash-content");
-    if (!el) return;
-    if (err || !res || !res.success) {
-      el.innerHTML = F4.ui.renderTabellaVuota("Errore nel caricamento");
-      return;
+  // Carica nomi magazzini prima del dashboard
+  var _magNomi = {};
+  F4.api.getMagazzini(function(em, rm) {
+    if (!em && rm && rm.success) {
+      (rm.data || []).forEach(function(m) { _magNomi[m.idMagazzino] = m.nomeMagazzino; });
     }
-    var d = res.data;
-    var html = "<div class=\"stats-grid\">";
+    F4.api.getDashboard(function(err, res) {
+      F4.ui.hideSpinner();
+      var el = document.getElementById("dash-content");
+      if (!el) return;
+      if (err || !res || !res.success) {
+        el.innerHTML = F4.ui.renderTabellaVuota("Errore nel caricamento");
+        return;
+      }
+      var d = res.data;
+      // Inject nomi from local map
+      if (!d.nomeMagazzini) d.nomeMagazzini = _magNomi;
+      var html = "<div class=\"stats-grid\">";
 
     html += "<div class=\"stat-card glass\">" +
       "<div class=\"stat-icon\">&#128230;</div>" +
@@ -113,7 +121,8 @@ F4.views.dashboard = function(container) {
       "</div>";
 
     el.innerHTML = html;
-  });
+    }); // end getDashboard
+  }); // end getMagazzini
 };
 
 // ============================================================
