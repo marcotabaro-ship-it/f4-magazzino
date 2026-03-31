@@ -145,7 +145,19 @@ F4.api = (function() {
     getReportGiacenze: getReportGiacenze,
     getReportMovimenti: getReportMovimenti,
     getSchedaProdotto: getSchedaProdotto,
-    getReportRiepilogoMagazzini: getReportRiepilogoMagazzini
+    getReportRiepilogoMagazzini: getReportRiepilogoMagazzini,
+    getFornitori:              function(cb)     { call("getFornitori",            {},          cb); },
+    creaFornitore:             function(d, cb)  { call("creaFornitore",           d,           cb); },
+    getListiniTestata:         function(p, cb)  { call("getListiniTestata",       p || {},     cb); },
+    creaListinoTestata:        function(d, cb)  { call("creaListinoTestata",      d,           cb); },
+    attivaListino:             function(id, cb) { call("attivaListino",           {idListino: id}, cb); },
+    aggiornaListinoTestata:    function(d, cb)  { call("aggiornaListinoTestata",  d,           cb); },
+    getScontiListino:          function(id, cb) { call("getScontiListino",        {idListino: id}, cb); },
+    setScontoTipologia:        function(d, cb)  { call("setScontoTipologia",      d,           cb); },
+    getListinoDettaglio:       function(p, cb)  { call("getListinoDettaglio",     p || {},     cb); },
+    aggiornaPrezziPerFamiglia: function(d, cb)  { call("aggiornaPrezziPerFamiglia", d,         cb); },
+    aggiornaPrezzoSingolo:     function(d, cb)  { call("aggiornaPrezzoSingolo",  d,            cb); },
+    importaPrezziExcel:        function(d, cb)  { call("importaPrezziExcel",     d,            cb); }
   };
 
 })();
