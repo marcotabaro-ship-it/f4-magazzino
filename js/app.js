@@ -49,6 +49,7 @@ F4.router = (function() {
 
     container.innerHTML = "";
 
+    _buildNav();
     _setActiveNav(routeName);
     _updateUserBar();
     _toggleSidebar(false);
@@ -130,6 +131,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
   // Route iniziale
   if (F4.auth.isLogged()) {
+    _buildNav();
     F4.router.go("dashboard");
   } else {
     F4.router.go("login");
