@@ -20,6 +20,7 @@ F4.router = (function() {
     "magazzini":     { view: F4.views.magazzini,    auth: true,  title: "Magazzini" },
     "utenti":        { view: F4.views.utenti,       auth: true,  title: "Utenti",              perm: "gestioneUtenti" },
     "audit":         { view: F4.views.audit,        auth: true,  title: "Audit Log",           perm: "audit" },
+    "listini":       { view: F4.views.listini,      auth: true,  title: "Listini e Sconti",  perm: "vediPrezzi" },
     "impostazioni":  { view: F4.views.impostazioni, auth: true,  title: "Impostazioni" },
     "reportistica":  { view: F4.views.reportistica, auth: true,  title: "Reportistica ISO" }
   };
@@ -151,6 +152,7 @@ function _buildNav() {
     { route: "magazzini",     icon: "&#127968;", label: "Magazzini",         perm: null },
     { route: "utenti",        icon: "&#128100;", label: "Utenti",            perm: "gestioneUtenti" },
     { route: "audit",         icon: "&#128221;", label: "Audit Log",         perm: "audit" },
+    { route: "listini",       icon: "&#128181;", label: "Listini e Sconti",  perm: "vediPrezzi" },
     { route: "impostazioni",  icon: "&#9881;",   label: "Impostazioni",      perm: null },
     { route: "reportistica",  icon: "&#128438;", label: "Report ISO",         perm: null }
   ];
