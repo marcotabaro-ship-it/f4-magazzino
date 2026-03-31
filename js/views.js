@@ -56,25 +56,41 @@ F4.views.dashboard = function(container) {
     "</div>" +
     "<div id=\"dash-content\"><div class=\"loading-placeholder\">Caricamento dashboard...</div></div>";
 
-  F4.ui.showSpinner("Caricamento dashboard...");
-  // Carica nomi magazzini prima del dashboard
-  var _magNomi = {};
-  F4.api.getMagazzini(function(em, rm) {
-    if (!em && rm && rm.success) {
-      (rm.data || []).forEach(function(m) { _magNomi[m.idMagazzino] = m.nomeMagazzino; });
+  // Carica magazzini e dashboard in parallelo
+  var magNomi  = {};
+  var dashData = null;
+  var chiamate = 0;
+
+  function prova() {
+    chiamate++;
+    if (chiamate < 2) return; // aspetta entrambe le chiamate
+    renderDash();
+  }
+
+  F4.api.getMagazzini(function(err, res) {
+    if (!err && res && res.success) {
+      (res.data || []).forEach(function(m) { magNomi[m.idMagazzino] = m.nomeMagazzino; });
     }
-    F4.api.getDashboard(function(err, res) {
-      F4.ui.hideSpinner();
-      var el = document.getElementById("dash-content");
-      if (!el) return;
-      if (err || !res || !res.success) {
-        el.innerHTML = F4.ui.renderTabellaVuota("Errore nel caricamento");
-        return;
-      }
-      var d = res.data;
-      // Inject nomi from local map
-      if (!d.nomeMagazzini) d.nomeMagazzini = _magNomi;
-      var html = "<div class=\"stats-grid\">";
+    prova();
+  });
+
+  // Chiama anche tutti i magazzini inclusi inattivi via getGiacenze per mappare IDs
+  F4.api.call("getMagazzini", {}, function(err, res) { /* already handled above */ });
+
+  F4.api.getDashboard(function(err, res) {
+    if (!err && res && res.success) dashData = res.data;
+    prova();
+  });
+
+  function renderDash() {
+    var el = document.getElementById("dash-content");
+    if (!el) return;
+    if (!dashData) {
+      el.innerHTML = F4.ui.renderTabellaVuota("Errore nel caricamento");
+      return;
+    }
+    var d = dashData;
+    var html = "<div class=\"stats-grid\">";
 
     html += "<div class=\"stat-card glass\">" +
       "<div class=\"stat-icon\">&#128230;</div>" +
@@ -100,13 +116,16 @@ F4.views.dashboard = function(container) {
     html += "</div>";
 
     if (magKeys.length > 0) {
-      html += "<div class=\"section-title\">Dettaglio per Magazzino</div><div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+      html += "<div class=\"section-title\">Dettaglio per Magazzino</div>" +
+        "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
         "<th>Magazzino</th><th>Pezzi</th>" +
         (d.totaleValore !== undefined ? "<th>Valore</th>" : "") +
         "</tr></thead><tbody>";
       magKeys.forEach(function(k) {
-        var m = d.perMagazzino[k];
-        html += "<tr><td>" + F4.ui.esc(k) + "</td><td>" + F4.ui.fmtNum(m.quantita, 0) + "</td>";
+        var m    = d.perMagazzino[k];
+        var nome = magNomi[k] || (d.nomeMagazzini && d.nomeMagazzini[k]) || k;
+        html += "<tr><td><strong>" + F4.ui.esc(nome) + "</strong></td>" +
+          "<td>" + F4.ui.fmtNum(m.quantita, 0) + "</td>";
         if (d.totaleValore !== undefined) html += "<td>" + F4.ui.fmtEuro(m.valore) + "</td>";
         html += "</tr>";
       });
@@ -121,8 +140,7 @@ F4.views.dashboard = function(container) {
       "</div>";
 
     el.innerHTML = html;
-    }); // end getDashboard
-  }); // end getMagazzini
+  }
 };
 
 // ============================================================
