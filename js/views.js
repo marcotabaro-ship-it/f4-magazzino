@@ -150,6 +150,7 @@ F4.views.anagrafica = function(container) {
   container.innerHTML =
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#128196; Anagrafica Prodotti</h2>" +
+      (F4.auth.canDo("gestioneListini") ? "<button id=\"anag-nuovo\" class=\"btn btn-primary\">&#43; Nuovo Articolo</button>" : "") +
     "</div>" +
     "<div class=\"anag-filters glass\" style=\"padding:1rem;margin-bottom:1rem;\">" +
       "<div class=\"form-grid\">" +
@@ -933,7 +934,7 @@ F4.views.trasferimento = function(container) {
 };
 
 // ============================================================
-// VIEW: SFRIDO INTELLIGENTE — con filtri a cascata
+// VIEW: SFRIDO INTELLIGENTE — con filtri a cascata + quantita
 // ============================================================
 F4.views.sfrido = function(container) {
   var vediPrezzi = F4.auth.canDo("vediPrezzi");
@@ -947,6 +948,10 @@ F4.views.sfrido = function(container) {
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Lunghezza Richiesta (ml) *</label>" +
           "<input id=\"sf-ml\" type=\"number\" min=\"0.01\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 1.85\">" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Quantita Pezzi Richiesta</label>" +
+          "<input id=\"sf-pz\" type=\"number\" min=\"1\" step=\"1\" class=\"f4-input\" placeholder=\"es. 3\" value=\"1\">" +
         "</div>" +
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Magazzino</label>" +
@@ -989,9 +994,8 @@ F4.views.sfrido = function(container) {
 
   var allProdotti = [];
   var IDS_SF   = ["sf-tip","sf-mat","sf-cod","sf-mis","sf-fam","sf-col"];
-  var CAMPI_SF = ["categoria","formaMateriale","codiceInternorm","dimensioniHxlxsp","famigliaColore","codiceColore"];
+  var CAMPI_SF = ["categoria","formaMateriale","codiceInternorm","dimensioni","famigliaColore","codiceColore"];
 
-  // Carica magazzini
   F4.api.getMagazzini(function(err, res) {
     if (err || !res || !res.success) return;
     var sel = document.getElementById("sf-mag");
@@ -1002,9 +1006,9 @@ F4.views.sfrido = function(container) {
       opt.textContent = m.nomeMagazzino;
       sel.appendChild(opt);
     });
+    sel.addEventListener("change", function() { /* filtro libero */ });
   });
 
-  // Carica prodotti per filtri a cascata
   F4.api.getProdotti({ stato: "Attivo" }, function(err, res) {
     if (err || !res || !res.success) return;
     allProdotti = res.data || [];
@@ -1059,17 +1063,19 @@ F4.views.sfrido = function(container) {
 
   document.getElementById("sf-reset").addEventListener("click", function() {
     IDS_SF.forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ""; });
-    document.getElementById("sf-ml").value = "";
+    var mlEl = document.getElementById("sf-ml"); if (mlEl) mlEl.value = "";
+    var pzEl = document.getElementById("sf-pz"); if (pzEl) pzEl.value = "1";
+    var magEl = document.getElementById("sf-mag"); if (magEl) magEl.value = "";
     document.getElementById("sf-result").innerHTML = "";
     _inizializzaFiltriSfrido();
   });
 
   document.getElementById("sf-btn").addEventListener("click", function() {
     var ml  = parseFloat(document.getElementById("sf-ml").value);
+    var pz  = parseInt(document.getElementById("sf-pz").value) || 1;
     var mag = document.getElementById("sf-mag").value;
     if (!ml || ml <= 0) { F4.ui.err("Inserisci una lunghezza valida"); return; }
 
-    // Trova idProdotto se selezionato un colore specifico
     var tip = _valSF("sf-tip");
     var mat = _valSF("sf-mat");
     var cod = _valSF("sf-cod");
@@ -1084,7 +1090,6 @@ F4.views.sfrido = function(container) {
       if (!el) return;
       if (err || !res || !res.success) { el.innerHTML = F4.ui.renderTabellaVuota("Errore ricerca"); return; }
 
-      // Filtra lato client per i filtri prodotto selezionati
       var rows = (res.data || []).filter(function(r) {
         if (tip && r.categoria      !== tip) return false;
         if (mat && r.formaMateriale !== mat) return false;
@@ -1100,18 +1105,27 @@ F4.views.sfrido = function(container) {
         return;
       }
 
-      var html = "<div class=\"section-title\">Residui disponibili (" + rows.length + " trovati, ordinati per spreco minimo)</div>";
+      var html = "<div class=\"section-title\">Residui disponibili (" + rows.length + " trovati" + (pz > 1 ? ", richiesti " + pz + " pezzi" : "") + ")</div>";
       html += "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+        "<th>Disponibilita</th>" +
         "<th>Lotto</th><th>ID Prod.</th><th>Cod.Int.</th><th>Tipologia</th><th>Materiale</th>" +
         "<th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th>" +
-        "<th>Magazzino</th><th>Pezzi</th><th>Lungh.(ml)</th><th>Spreco(ml)</th>";
+        "<th>Magazzino</th><th>Pezzi Disp.</th><th>Lungh.(ml)</th><th>Spreco(ml)</th>";
       if (vediPrezzi) html += "<th>Val.Unit.</th><th>Val.Totale</th>";
       html += "</tr></thead><tbody>";
 
       rows.forEach(function(r) {
-        var sc = r.spreco < 0.3 ? "text-ok" : (r.spreco < 1 ? "text-warn" : "");
-        html += "<tr>" +
-          "<td><span class=\"badge badge-ok\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
+        var copreDaSolo   = r.quantitaPz >= pz;
+        var parziale      = !copreDaSolo && r.quantitaPz > 0;
+        var sprecoClass   = r.spreco < 0.3 ? "text-ok" : (r.spreco < 1 ? "text-warn" : "");
+        var rowStyle      = copreDaSolo ? "style=\"background:rgba(76,175,80,0.08)\"" : (parziale ? "style=\"background:rgba(255,152,0,0.08)\"" : "");
+        var badge         = copreDaSolo
+          ? "<span class=\"badge badge-ok\">&#10003; Copre da solo</span>"
+          : "<span class=\"badge badge-warn\">Parziale (" + r.quantitaPz + "/" + pz + " pz)</span>";
+
+        html += "<tr " + rowStyle + ">" +
+          "<td>" + badge + "</td>" +
+          "<td><span class=\"badge\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
           "<td><span class=\"badge\">" + F4.ui.esc(r.idProdotto) + "</span></td>" +
           "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm || "") + "</span></td>" +
           "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
@@ -1123,17 +1137,17 @@ F4.views.sfrido = function(container) {
           "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
           "<td><strong>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</strong></td>" +
           "<td><strong>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</strong></td>" +
-          "<td class=\"" + sc + "\"><strong>" + F4.ui.fmtNum(r.spreco, 2) + "</strong></td>";
+          "<td class=\"" + sprecoClass + "\">" + F4.ui.fmtNum(r.spreco, 2) + "</td>";
         if (vediPrezzi) {
           html += "<td>" + F4.ui.fmtEuro(r.valoreUnitario) + "</td>" +
                   "<td><strong>" + F4.ui.fmtEuro(r.valoreTotaleLotto) + "</strong></td>";
         }
         html += "</tr>";
       });
-      html += "</tbody></table></div>";
 
-      var totPezzi = rows.reduce(function(s,r){ return s + (r.quantitaPz||0); }, 0);
-      html += "<div class=\"table-footer\">Lotti: " + rows.length + " &nbsp;|&nbsp; Pezzi: " + F4.ui.fmtNum(totPezzi,0) + "</div>";
+      var copre = rows.filter(function(r) { return r.quantitaPz >= pz; }).length;
+      html += "</tbody></table></div>";
+      html += "<div class=\"table-footer\">Lotti: " + rows.length + " &nbsp;|&nbsp; Coprono da soli: " + copre + " &nbsp;|&nbsp; Parziali: " + (rows.length - copre) + "</div>";
       el.innerHTML = html;
     });
   });
@@ -1842,6 +1856,131 @@ F4.views.impostazioni = function(container) {
 
 
 };
+
+// ============================================================
+// UTILITY: MODAL CREA PRODOTTO (usata da Anagrafica e Carico)
+// ============================================================
+F4.ui.modalCreaProdotto = function(prefill, callback) {
+  prefill = prefill || {};
+
+  var tipologie = [
+    "Piatta PVC","Piatta PVC c/incisione","Piatta Alluminio",
+    "Angolare PVC","Angolare Alluminio","Angolare non 90°",
+    "Angolare PVC Espanso","Aggancio Ang. PVC Esp.","Squadretta PVC Esp.",
+    "Coprifuga Legno Impl.","Coprifuga LA604 – barra 2,1m"
+  ];
+  var materiali = ["PVC","Alluminio","Legno","PVC Espanso"];
+
+  var html =
+    "<div class=\"form-grid\">" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Tipologia *</label>" +
+        "<select id=\"cp-tip\" class=\"f4-input\">" +
+          "<option value=\"\">Seleziona...</option>" +
+          tipologie.map(function(t) {
+            return "<option value=\"" + t + "\"" + (prefill.categoria === t ? " selected" : "") + ">" + t + "</option>";
+          }).join("") +
+        "</select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Materiale *</label>" +
+        "<select id=\"cp-mat\" class=\"f4-input\">" +
+          "<option value=\"\">Seleziona...</option>" +
+          materiali.map(function(m) {
+            return "<option value=\"" + m + "\"" + (prefill.formaMateriale === m ? " selected" : "") + ">" + m + "</option>";
+          }).join("") +
+        "</select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Misura (es. 30/3)</label>" +
+        "<input id=\"cp-mis\" class=\"f4-input\" placeholder=\"es. 30/3\" value=\"" + (prefill.dimensioni || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Cod. Internorm</label>" +
+        "<input id=\"cp-cod\" class=\"f4-input\" placeholder=\"es. 61520\" value=\"" + (prefill.codiceInternorm || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Famiglia Colore *</label>" +
+        "<input id=\"cp-fam\" class=\"f4-input\" placeholder=\"es. EL/HDS/HF/HFM\" value=\"" + (prefill.famigliaColore || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Codice Colore *</label>" +
+        "<input id=\"cp-col\" class=\"f4-input\" placeholder=\"es. HDS04\" value=\"" + (prefill.codiceColore || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">U.M.</label>" +
+        "<select id=\"cp-um\" class=\"f4-input\">" +
+          "<option value=\"ml\">ml</option>" +
+          "<option value=\"pz\">pz</option>" +
+        "</select>" +
+      "</div>" +
+    "</div>" +
+    "<div class=\"section-title\" style=\"margin-top:1rem;\">Prezzi Listino Attivo (opzionali)</div>" +
+    "<div class=\"form-grid\">" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Tipo Barra</label>" +
+        "<input id=\"cp-tipo-barra\" class=\"f4-input\" placeholder=\"es. 6m\" value=\"" + (prefill.tipoBarra || "6m") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Lunghezza Barra (m)</label>" +
+        "<input id=\"cp-lun-barra\" type=\"number\" step=\"0.1\" class=\"f4-input\" placeholder=\"es. 6\" value=\"" + (prefill.lunghezzaBarraM || "6") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Imposto Fisso ml (&#8364;)</label>" +
+        "<input id=\"cp-imp\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 12.00\"></div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Prezzo ml Listino (&#8364;)</label>" +
+        "<input id=\"cp-pml\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 17.40\"></div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Prezzo Barra Listino (&#8364;)</label>" +
+        "<input id=\"cp-pbar\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 104.80\"></div>" +
+    "</div>";
+
+  F4.ui.modal("Nuovo Articolo", html, [
+    { label: "Annulla", cls: "btn-ghost" },
+    { label: "Crea Articolo", cls: "btn-primary", chiudi: false, action: function() {
+      var tip = document.getElementById("cp-tip").value;
+      var mat = document.getElementById("cp-mat").value;
+      var fam = document.getElementById("cp-fam").value.trim();
+      var col = document.getElementById("cp-col").value.trim();
+      var mis = document.getElementById("cp-mis").value.trim();
+      var cod = document.getElementById("cp-cod").value.trim();
+      var um  = document.getElementById("cp-um").value;
+      var tipBarra = document.getElementById("cp-tipo-barra").value.trim();
+      var lunBarra = parseFloat(document.getElementById("cp-lun-barra").value) || 6;
+      var impFisso = parseFloat(document.getElementById("cp-imp").value)  || null;
+      var prezzoMl = parseFloat(document.getElementById("cp-pml").value)  || null;
+      var prezzoBar= parseFloat(document.getElementById("cp-pbar").value) || null;
+
+      if (!tip) { F4.ui.err("Seleziona la Tipologia"); return; }
+      if (!mat) { F4.ui.err("Seleziona il Materiale"); return; }
+      if (!fam) { F4.ui.err("Inserisci la Famiglia Colore"); return; }
+      if (!col) { F4.ui.err("Inserisci il Codice Colore"); return; }
+
+      F4.ui.showSpinner("Creazione articolo...");
+      F4.api.creaProdotto({
+        categoria:       tip,
+        formaMateriale:  mat,
+        dimensioni:      mis,
+        famigliaColore:  fam,
+        codiceColore:    col,
+        codiceInternorm: cod,
+        unitaMisura:     um,
+        tipoBarra:       tipBarra,
+        lunghezzaBarraM: lunBarra,
+        impostoFissoMl:  impFisso,
+        prezzoMlListino: prezzoMl,
+        prezzoBarraList: prezzoBar
+      }, function(e, r) {
+        F4.ui.hideSpinner();
+        if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore creazione"); return; }
+        F4.ui.closeModal();
+        if (callback) callback(r.idProdotto, { categoria: tip, formaMateriale: mat, dimensioni: mis, famigliaColore: fam, codiceColore: col });
+      });
+    }}
+  ]);
+};
+
 
 window.F4 = F4;
 
