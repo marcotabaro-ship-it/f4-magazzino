@@ -277,7 +277,7 @@ F4.views.anagrafica = function(container) {
 };
 
 // ============================================================
-// VIEW: GIACENZE E LOTTI — con dati prodotto enriched
+// VIEW: GIACENZE E LOTTI — filtri a cascata + dati prodotto
 // ============================================================
 F4.views.giacenze = function(container) {
   var vediPrezzi = F4.auth.canDo("vediPrezzi");
@@ -286,20 +286,55 @@ F4.views.giacenze = function(container) {
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#128197; Giacenze e Lotti</h2>" +
     "</div>" +
-    "<div class=\"toolbar\">" +
-      "<select id=\"giac-mag\" class=\"f4-input select-sm\"><option value=\"\">Tutti i magazzini</option></select>" +
-      "<select id=\"giac-tipo\" class=\"f4-input select-sm\">" +
-        "<option value=\"\">Tutti i tipi</option>" +
-        "<option value=\"Barra\">Barre</option>" +
-        "<option value=\"Residuo\">Residui</option>" +
-      "</select>" +
-      "<button id=\"giac-cerca\" class=\"btn btn-primary\">Filtra</button>" +
+    "<div class=\"anag-filters glass\" style=\"padding:1rem;margin-bottom:1rem;\">" +
+      "<div class=\"form-grid\">" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Magazzino</label>" +
+          "<select id=\"gf-mag\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Tipo Pezzo</label>" +
+          "<select id=\"gf-tipo\" class=\"f4-input\"><option value=\"\">Tutti</option><option value=\"Barra\">Barre</option><option value=\"Residuo\">Residui</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Tipologia</label>" +
+          "<select id=\"gf-tip\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Materiale</label>" +
+          "<select id=\"gf-mat\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Cod. Internorm</label>" +
+          "<select id=\"gf-cod\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Misura</label>" +
+          "<select id=\"gf-mis\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Famiglia Colore</label>" +
+          "<select id=\"gf-fam\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Colore</label>" +
+          "<select id=\"gf-col\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+      "</div>" +
+      "<div style=\"margin-top:0.75rem;\">" +
+        "<button id=\"gf-reset\" class=\"btn btn-ghost\">&#8635; Reset</button>" +
+      "</div>" +
     "</div>" +
     "<div id=\"giac-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
+  var allRighe = [];
+  var IDS_GF   = ["gf-tip","gf-mat","gf-cod","gf-mis","gf-fam","gf-col"];
+  var CAMPI_GF = ["categoria","formaMateriale","codiceInternorm","dimensioni","famigliaColore","codiceColore"];
+
+  // Carica magazzini
   F4.api.getMagazzini(function(err, res) {
     if (err || !res || !res.success) return;
-    var sel = document.getElementById("giac-mag");
+    var sel = document.getElementById("gf-mag");
     if (!sel) return;
     (res.data || []).forEach(function(m) {
       var opt = document.createElement("option");
@@ -307,88 +342,147 @@ F4.views.giacenze = function(container) {
       opt.textContent = m.nomeMagazzino;
       sel.appendChild(opt);
     });
-    sel.addEventListener("change", caricaGiacenze);
+    sel.addEventListener("change", applicaFiltri);
   });
 
-  function caricaGiacenze() {
-    var mag  = document.getElementById("giac-mag") ? document.getElementById("giac-mag").value : "";
-    var tipo = document.getElementById("giac-tipo") ? document.getElementById("giac-tipo").value : "";
-    var filtri = {};
-    if (mag) filtri.idMagazzino = mag;
-    F4.ui.showSpinner("Caricamento giacenze...");
-    F4.api.getGiacenze(filtri, function(err, res) {
-      F4.ui.hideSpinner();
-      var el = document.getElementById("giac-list");
-      if (!el) return;
-      if (err || !res || !res.success) {
-        el.innerHTML = F4.ui.renderTabellaVuota("Errore caricamento");
-        return;
-      }
-      var rows = (res.data || []).filter(function(r) {
-        return !tipo || r.tipoPezzo === tipo;
-      }).filter(function(r) {
-        return (r.quantitaPz || 0) > 0;
-      });
-      if (rows.length === 0) {
-        el.innerHTML = F4.ui.renderTabellaVuota("Nessuna giacenza trovata");
-        return;
-      }
+  function valGF(id) { var el = document.getElementById(id); return el ? el.value : ""; }
 
-      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
-        "<th>Lotto</th>" +
-        "<th>ID Prodotto</th>" +
-        "<th>Cod.Int.</th>" +
-        "<th>Tipologia</th>" +
-        "<th>Materiale</th>" +
-        "<th>Misura</th>" +
-        "<th>Famiglia</th>" +
-        "<th>Colore</th>" +
-        "<th>U.M.</th>" +
-        "<th>Magazzino</th>" +
-        "<th>Tipo</th>" +
-        "<th>Pezzi</th>" +
-        "<th>Lungh.(ml)</th>";
-      if (vediPrezzi) {
-        html += "<th>Val.Unit.(&#8364;/ml)</th><th>Val.Totale</th>";
-      }
-      html += "<th>Data Carico</th></tr></thead><tbody>";
+  function uniqueGF(arr) {
+    var seen = {};
+    return arr.filter(function(v) { if (!v || seen[v]) return false; seen[v] = true; return true; }).sort();
+  }
 
-      rows.forEach(function(r) {
-        var tipoClass = r.tipoPezzo === "Residuo" ? "badge-warn" : "badge-ok";
-        html += "<tr>" +
-          "<td><span class=\"badge\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
-          "<td><span class=\"badge\">" + F4.ui.esc(r.idProdotto) + "</span></td>" +
-          "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm || "") + "</span></td>" +
-          "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
-          "<td>" + F4.ui.esc(r.formaMateriale || "") + "</td>" +
-          "<td>" + F4.ui.esc(r.dimensioni || "") + "</td>" +
-          "<td>" + F4.ui.esc(r.famigliaColore || "") + "</td>" +
-          "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore || "") + "</span></td>" +
-          "<td>" + F4.ui.esc(r.unitaMisura || "ml") + "</td>" +
-          "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
-          "<td><span class=\"badge " + tipoClass + "\">" + F4.ui.esc(r.tipoPezzo) + "</span></td>" +
-          "<td><strong>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</strong></td>" +
-          "<td>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</td>";
-        if (vediPrezzi) {
-          html += "<td>" + F4.ui.fmtEuro(r.valoreUnitario) + "</td>" +
-                  "<td><strong>" + F4.ui.fmtEuro(r.valoreTotaleLotto) + "</strong></td>";
-        }
-        html += "<td>" + F4.ui.fmtData(r.dataCarico) + "</td></tr>";
-      });
-
-      var totPezzi = rows.reduce(function(s, r) { return s + (r.quantitaPz || 0); }, 0);
-      html += "</tbody></table></div>";
-      html += "<div class=\"table-footer\">Lotti: " + rows.length + " &nbsp;|&nbsp; Pezzi totali: " + F4.ui.fmtNum(totPezzi, 0) + "</div>";
-      if (vediPrezzi) {
-        var totValore = rows.reduce(function(s, r) { return s + (r.valoreTotaleLotto || 0); }, 0);
-        html += "<div class=\"table-footer\">Valore totale: <strong>" + F4.ui.fmtEuro(totValore) + "</strong></div>";
+  function subsetGF(idx) {
+    var mag  = valGF("gf-mag");
+    var tipo = valGF("gf-tipo");
+    return allRighe.filter(function(r) {
+      if (mag  && r.idMagazzino !== mag)  return false;
+      if (tipo && r.tipoPezzo   !== tipo) return false;
+      for (var i = 0; i < idx; i++) {
+        var v = valGF(IDS_GF[i]);
+        if (v && (r[CAMPI_GF[i]] || "") !== v) return false;
       }
-      el.innerHTML = html;
+      return true;
     });
   }
 
-  document.getElementById("giac-cerca").addEventListener("click", caricaGiacenze);
-  caricaGiacenze();
+  function popolaSelGF(id, vals, keepVal) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var curr = keepVal !== undefined ? keepVal : sel.value;
+    sel.innerHTML = "<option value=\"\">Tutti</option>";
+    vals.forEach(function(v) {
+      var opt = document.createElement("option");
+      opt.value = v; opt.textContent = v;
+      if (v === curr) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function aggiornaFiltriCascata(fromIdx) {
+    for (var j = fromIdx + 1; j < IDS_GF.length; j++) {
+      var base = subsetGF(j);
+      var vals = uniqueGF(base.map(function(r) { return r[CAMPI_GF[j]] || ""; }).filter(Boolean));
+      var curr = valGF(IDS_GF[j]);
+      if (curr && vals.indexOf(curr) === -1) curr = "";
+      popolaSelGF(IDS_GF[j], vals, curr);
+    }
+    renderGiac();
+  }
+
+  function inizializzaFiltriProdotto() {
+    IDS_GF.forEach(function(id, i) {
+      var vals = uniqueGF(allRighe.map(function(r) { return r[CAMPI_GF[i]] || ""; }).filter(Boolean));
+      popolaSelGF(id, vals, "");
+      document.getElementById(id).addEventListener("change", function() {
+        aggiornaFiltriCascata(i);
+      });
+    });
+    document.getElementById("gf-tipo").addEventListener("change", function() {
+      aggiornaFiltriCascata(-1);
+    });
+  }
+
+  function applicaFiltri() {
+    var mag  = valGF("gf-mag");
+    var tipo = valGF("gf-tipo");
+    var filtri = {};
+    if (mag) filtri.idMagazzino = mag;
+    F4.ui.showSpinner("Caricamento...");
+    F4.api.getGiacenze(filtri, function(err, res) {
+      F4.ui.hideSpinner();
+      if (err || !res || !res.success) return;
+      allRighe = (res.data || []).filter(function(r) { return (r.quantitaPz || 0) > 0; });
+      inizializzaFiltriProdotto();
+      aggiornaFiltriCascata(-1);
+    });
+  }
+
+  function filtraCorrente() {
+    var mag  = valGF("gf-mag");
+    var tipo = valGF("gf-tipo");
+    return allRighe.filter(function(r) {
+      if (mag  && r.idMagazzino !== mag)  return false;
+      if (tipo && r.tipoPezzo   !== tipo) return false;
+      for (var i = 0; i < IDS_GF.length; i++) {
+        var v = valGF(IDS_GF[i]);
+        if (v && (r[CAMPI_GF[i]] || "") !== v) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderGiac() {
+    var el = document.getElementById("giac-list");
+    if (!el) return;
+    var rows = filtraCorrente();
+    if (rows.length === 0) { el.innerHTML = F4.ui.renderTabellaVuota("Nessuna giacenza trovata"); return; }
+
+    var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+      "<th>Lotto</th><th>ID Prod.</th><th>Cod.Int.</th><th>Tipologia</th><th>Materiale</th>" +
+      "<th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th>" +
+      "<th>Magazzino</th><th>Tipo</th><th>Pezzi</th><th>Lungh.(ml)</th>";
+    if (vediPrezzi) html += "<th>Val.Unit.</th><th>Val.Totale</th>";
+    html += "<th>Data Carico</th></tr></thead><tbody>";
+
+    rows.forEach(function(r) {
+      var tc = r.tipoPezzo === "Residuo" ? "badge-warn" : "badge-ok";
+      html += "<tr>" +
+        "<td><span class=\"badge\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
+        "<td><span class=\"badge\">" + F4.ui.esc(r.idProdotto) + "</span></td>" +
+        "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm || "") + "</span></td>" +
+        "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
+        "<td>" + F4.ui.esc(r.formaMateriale || "") + "</td>" +
+        "<td>" + F4.ui.esc(r.dimensioni || "") + "</td>" +
+        "<td>" + F4.ui.esc(r.famigliaColore || "") + "</td>" +
+        "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore || "") + "</span></td>" +
+        "<td>" + F4.ui.esc(r.unitaMisura || "ml") + "</td>" +
+        "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
+        "<td><span class=\"badge " + tc + "\">" + F4.ui.esc(r.tipoPezzo) + "</span></td>" +
+        "<td><strong>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</strong></td>" +
+        "<td>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</td>";
+      if (vediPrezzi) html += "<td>" + F4.ui.fmtEuro(r.valoreUnitario) + "</td><td><strong>" + F4.ui.fmtEuro(r.valoreTotaleLotto) + "</strong></td>";
+      html += "<td>" + F4.ui.fmtData(r.dataCarico) + "</td></tr>";
+    });
+
+    var totPezzi  = rows.reduce(function(s,r){ return s + (r.quantitaPz||0); }, 0);
+    html += "</tbody></table></div>";
+    html += "<div class=\"table-footer\">Lotti: " + rows.length + " &nbsp;|&nbsp; Pezzi: " + F4.ui.fmtNum(totPezzi,0) + "</div>";
+    if (vediPrezzi) {
+      var totVal = rows.reduce(function(s,r){ return s + (r.valoreTotaleLotto||0); }, 0);
+      html += "<div class=\"table-footer\">Valore totale: <strong>" + F4.ui.fmtEuro(totVal) + "</strong></div>";
+    }
+    el.innerHTML = html;
+  }
+
+  document.getElementById("gf-reset").addEventListener("click", function() {
+    ["gf-mag","gf-tipo"].concat(IDS_GF).forEach(function(id) {
+      var el = document.getElementById(id); if (el) el.value = "";
+    });
+    applicaFiltri();
+  });
+
+  applicaFiltri();
 };
 
 // ============================================================
@@ -661,7 +755,7 @@ F4.views.scarico = function(container) {
 };
 
 // ============================================================
-// VIEW: TRASFERIMENTO
+// VIEW: TRASFERIMENTO — multi-selezione + nome magazzino
 // ============================================================
 F4.views.trasferimento = function(container) {
   container.innerHTML =
@@ -670,71 +764,136 @@ F4.views.trasferimento = function(container) {
     "</div>" +
     "<div class=\"op-card glass\">" +
       "<div class=\"form-grid\">" +
-        "<div class=\"form-group full-width\">" +
-          "<label class=\"f4-label\">ID Lotto da trasferire *</label>" +
-          "<input id=\"tra-lotto\" class=\"f4-input\" placeholder=\"es. LOT-20260327-0001\">" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Magazzino Origine (filtro)</label>" +
+          "<select id=\"tra-orig\" class=\"f4-input\"><option value=\"\">Tutti i magazzini</option></select>" +
         "</div>" +
-        "<div class=\"form-group full-width\">" +
+        "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Magazzino Destinazione *</label>" +
           "<select id=\"tra-dest\" class=\"f4-input\"><option value=\"\">Seleziona...</option></select>" +
         "</div>" +
       "</div>" +
+      "<p style=\"color:var(--text-secondary);font-size:0.85rem;margin-top:0.5rem\">Seleziona uno o piu lotti dalla tabella sottostante, poi clicca Esegui Trasferimento.</p>" +
+      "<div id=\"tra-selected\" style=\"margin-top:0.5rem;color:var(--accent-gold);font-weight:600\"></div>" +
       "<div class=\"form-actions\">" +
-        "<button id=\"tra-btn\" class=\"btn btn-primary\">&#8644; Esegui Trasferimento</button>" +
-        "<button class=\"btn btn-ghost\" onclick=\"F4.router.go('dashboard')\">Annulla</button>" +
+        "<button id=\"tra-btn\" class=\"btn btn-primary\" disabled>&#8644; Esegui Trasferimento Selezionati</button>" +
+        "<button id=\"tra-deselect\" class=\"btn btn-ghost\">Deseleziona tutti</button>" +
+        "<button class=\"btn btn-ghost\" onclick=\"F4.router.go('dashboard')">Annulla</button>" +
       "</div>" +
     "</div>" +
-    "<div class=\"section-title\" style=\"margin-top:2rem\">Tutti i Lotti</div>" +
+    "<div class=\"section-title\" style=\"margin-top:1.5rem\">Lotti Disponibili — clicca per selezionare</div>" +
     "<div id=\"tra-giac\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
+
+  var selezionati = {};
+  var tuttiLotti  = [];
 
   F4.api.getMagazzini(function(err, res) {
     if (err || !res || !res.success) return;
-    var sel = document.getElementById("tra-dest");
-    if (!sel) return;
+    var selO = document.getElementById("tra-orig");
+    var selD = document.getElementById("tra-dest");
+    if (!selO || !selD) return;
     (res.data || []).forEach(function(m) {
-      var opt = document.createElement("option");
-      opt.value = m.idMagazzino;
-      opt.textContent = m.nomeMagazzino;
-      sel.appendChild(opt);
+      var o1 = document.createElement("option"); o1.value = m.idMagazzino; o1.textContent = m.nomeMagazzino; selO.appendChild(o1);
+      var o2 = document.createElement("option"); o2.value = m.idMagazzino; o2.textContent = m.nomeMagazzino; selD.appendChild(o2);
     });
+    selO.addEventListener("change", caricaLotti);
   });
 
-  F4.api.getGiacenze({}, function(err, res) {
+  function aggiornaBottone() {
+    var n   = Object.keys(selezionati).length;
+    var btn = document.getElementById("tra-btn");
+    var lbl = document.getElementById("tra-selected");
+    if (btn) btn.disabled = (n === 0);
+    if (lbl) lbl.textContent = n > 0 ? (n + " lotto" + (n > 1 ? "/i selezionato/i" : " selezionato")) : "";
+  }
+
+  function caricaLotti() {
+    var orig = document.getElementById("tra-orig") ? document.getElementById("tra-orig").value : "";
+    var filtri = {};
+    if (orig) filtri.idMagazzino = orig;
+    F4.api.getGiacenze(filtri, function(err, res) {
+      var el = document.getElementById("tra-giac");
+      if (!el) return;
+      if (err || !res || !res.success) { el.innerHTML = F4.ui.renderTabellaVuota("Errore caricamento"); return; }
+      tuttiLotti = (res.data || []).filter(function(r) { return (r.quantitaPz || 0) > 0; });
+      selezionati = {};
+      aggiornaBottone();
+      renderLotti();
+    });
+  }
+
+  function renderLotti() {
     var el = document.getElementById("tra-giac");
     if (!el) return;
-    if (err || !res || !res.success || !res.data || res.data.length === 0) {
-      el.innerHTML = F4.ui.renderTabellaVuota("Nessuna giacenza");
-      return;
-    }
-    var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr><th>Lotto</th><th>Prodotto</th><th>Magazzino Attuale</th><th>Tipo</th><th>Pezzi</th><th></th></tr></thead><tbody>";
-    res.data.forEach(function(r) {
-      if ((r.quantitaPz || 0) <= 0) return;
-      html += "<tr>" +
+    if (tuttiLotti.length === 0) { el.innerHTML = F4.ui.renderTabellaVuota("Nessun lotto disponibile"); return; }
+    var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+      "<th style=\"width:36px\">&#10003;</th>" +
+      "<th>Lotto</th><th>Prodotto</th><th>Tipologia</th><th>Colore</th><th>Magazzino Attuale</th><th>Tipo</th><th>Pezzi</th><th>Lungh.(ml)</th>" +
+      "</tr></thead><tbody>";
+    tuttiLotti.forEach(function(r) {
+      var sel = !!selezionati[r.idLotto];
+      var rowClass = sel ? "style=\"background:rgba(201,168,76,0.12);cursor:pointer\"" : "style=\"cursor:pointer\"";
+      var check = sel ? "&#9745;" : "&#9744;";
+      html += "<tr " + rowClass + " onclick=\"F4._traToggle('" + F4.ui.esc(r.idLotto) + "')\">" +
+        "<td style=\"text-align:center;font-size:1.1rem\">" + check + "</td>" +
         "<td><span class=\"badge\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
         "<td>" + F4.ui.esc(r.idProdotto) + "</td>" +
-        "<td>" + F4.ui.esc(r.idMagazzino) + "</td>" +
+        "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
+        "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore || "") + "</span></td>" +
+        "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
         "<td>" + F4.ui.esc(r.tipoPezzo) + "</td>" +
         "<td>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</td>" +
-        "<td><button class=\"btn btn-sm btn-secondary\" onclick=\"document.getElementById('tra-lotto').value='" + F4.ui.esc(r.idLotto) + "'\">Seleziona</button></td>" +
+        "<td>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</td>" +
         "</tr>";
     });
     html += "</tbody></table></div>";
     el.innerHTML = html;
+  }
+
+  F4._traToggle = function(idLotto) {
+    if (selezionati[idLotto]) delete selezionati[idLotto];
+    else selezionati[idLotto] = true;
+    aggiornaBottone();
+    renderLotti();
+  };
+
+  document.getElementById("tra-deselect").addEventListener("click", function() {
+    selezionati = {};
+    aggiornaBottone();
+    renderLotti();
   });
 
   document.getElementById("tra-btn").addEventListener("click", function() {
-    var lotto = document.getElementById("tra-lotto").value.trim();
-    var dest  = document.getElementById("tra-dest").value;
-    if (!lotto) { F4.ui.err("Inserisci l'ID Lotto"); return; }
-    if (!dest)  { F4.ui.err("Seleziona magazzino destinazione"); return; }
-    F4.ui.showSpinner("Trasferimento in corso...");
-    F4.api.trasferimento({ idLotto: lotto, idMagazzinoDestinazione: dest }, function(err, res) {
-      F4.ui.hideSpinner();
-      if (err || !res || !res.success) { F4.ui.err(res ? res.error : "Errore"); return; }
-      F4.ui.ok("Trasferimento completato");
-      document.getElementById("tra-lotto").value = "";
-    });
+    var dest = document.getElementById("tra-dest").value;
+    var ids  = Object.keys(selezionati);
+    if (!dest)       { F4.ui.err("Seleziona il magazzino di destinazione"); return; }
+    if (!ids.length) { F4.ui.err("Seleziona almeno un lotto"); return; }
+    F4.ui.conferma(
+      "Conferma Trasferimento",
+      "Trasferire " + ids.length + " lotto/i al magazzino selezionato?",
+      function() {
+        F4.ui.showSpinner("Trasferimento in corso...");
+        var completati = 0;
+        var errori     = 0;
+        ids.forEach(function(idLotto) {
+          F4.api.trasferimento({idLotto: idLotto, idMagazzinoDestinazione: dest}, function(e, r) {
+            if (e || !r || !r.success) errori++;
+            else completati++;
+            if (completati + errori === ids.length) {
+              F4.ui.hideSpinner();
+              if (errori === 0) F4.ui.ok("Trasferiti " + completati + " lotti con successo");
+              else F4.ui.warn("Trasferiti " + completati + " / " + ids.length + " lotti. Errori: " + errori);
+              selezionati = {};
+              aggiornaBottone();
+              caricaLotti();
+            }
+          });
+        });
+      }
+    );
   });
+
+  caricaLotti();
 };
 
 // ============================================================
@@ -1613,12 +1772,7 @@ F4.views.impostazioni = function(container) {
       "<div class=\"form-group\"><label class=\"f4-label\">Nuova Password</label>" +
       "<input id=\"imp-pass\" type=\"password\" class=\"f4-input\" placeholder=\"Nuova password\"></div>" +
       "<button id=\"imp-save-pass\" class=\"btn btn-primary\">Aggiorna Password</button>" +
-      (F4.auth.canDo("gestioneListini") ?
-        "<div class=\"section-title\" style=\"margin-top:1.5rem\">Sconto Fornitore F4</div>" +
-        "<div class=\"form-group\"><label class=\"f4-label\">Sconto attuale (%)</label>" +
-        "<input id=\"imp-sconto\" type=\"number\" min=\"0\" max=\"1\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 0.36\"></div>" +
-        "<button id=\"imp-save-sconto\" class=\"btn btn-warning\">Aggiorna Sconto</button>"
-      : "") +
+"" +
     "</div>";
 
   document.getElementById("imp-save-pass").addEventListener("click", function() {
@@ -1633,26 +1787,7 @@ F4.views.impostazioni = function(container) {
     });
   });
 
-  if (F4.auth.canDo("gestioneListini")) {
-    F4.api.getImpostazioni(function(err, res) {
-      if (err || !res || !res.success) return;
-      var el = document.getElementById("imp-sconto");
-      if (el && res.data && res.data.SCONTO_F4 !== undefined) el.value = res.data.SCONTO_F4;
-    });
 
-    document.getElementById("imp-save-sconto").addEventListener("click", function() {
-      var s = parseFloat(document.getElementById("imp-sconto").value);
-      if (isNaN(s) || s < 0 || s > 1) { F4.ui.err("Inserisci un valore tra 0 e 1 (es. 0.36)"); return; }
-      F4.ui.conferma("Conferma aggiornamento sconto", "Aggiornare lo sconto F4 a " + (s * 100).toFixed(0) + "%? Tutti i nuovi carichi useranno questo valore.", function() {
-        F4.ui.showSpinner("Aggiornamento sconto...");
-        F4.api.setSconto(s, function(e, r) {
-          F4.ui.hideSpinner();
-          if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
-          F4.ui.ok("Sconto aggiornato a " + (s * 100).toFixed(0) + "%");
-        });
-      });
-    });
-  }
 };
 
 window.F4 = F4;
