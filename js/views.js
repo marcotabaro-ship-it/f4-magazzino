@@ -1086,12 +1086,12 @@ F4.views.sfrido = function(container) {
 
       // Filtra lato client per i filtri prodotto selezionati
       var rows = (res.data || []).filter(function(r) {
-        if (tip && r.categoria !== tip) return false;
+        if (tip && r.categoria      !== tip) return false;
         if (mat && r.formaMateriale !== mat) return false;
         if (cod && (r.codiceInternorm || "") !== cod) return false;
-        if (mis && (r.dimensioni || r.dimensioniHxlxsp || "") !== mis) return false;
+        if (mis && r.dimensioni     !== mis) return false;
         if (fam && r.famigliaColore !== fam) return false;
-        if (col && r.codiceColore !== col) return false;
+        if (col && r.codiceColore   !== col) return false;
         return true;
       });
 
@@ -1099,24 +1099,41 @@ F4.views.sfrido = function(container) {
         el.innerHTML = "<div class=\"alert-box alert-warn\">&#9888; Nessun residuo utile trovato per " + ml + " ml con i filtri selezionati.</div>";
         return;
       }
+
       var html = "<div class=\"section-title\">Residui disponibili (" + rows.length + " trovati, ordinati per spreco minimo)</div>";
       html += "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
-        "<th>Lotto</th><th>Prodotto</th><th>Magazzino</th><th>Lungh.(ml)</th><th>Spreco(ml)</th><th>Pezzi</th>";
-      if (vediPrezzi) html += "<th>Val.Unitario</th>";
+        "<th>Lotto</th><th>ID Prod.</th><th>Cod.Int.</th><th>Tipologia</th><th>Materiale</th>" +
+        "<th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th>" +
+        "<th>Magazzino</th><th>Pezzi</th><th>Lungh.(ml)</th><th>Spreco(ml)</th>";
+      if (vediPrezzi) html += "<th>Val.Unit.</th><th>Val.Totale</th>";
       html += "</tr></thead><tbody>";
+
       rows.forEach(function(r) {
-        var sprecoClass = r.spreco < 0.3 ? "text-ok" : (r.spreco < 1 ? "text-warn" : "");
+        var sc = r.spreco < 0.3 ? "text-ok" : (r.spreco < 1 ? "text-warn" : "");
         html += "<tr>" +
           "<td><span class=\"badge badge-ok\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
-          "<td>" + F4.ui.esc(r.idProdotto) + "</td>" +
-          "<td>" + F4.ui.esc(r.idMagazzino) + "</td>" +
+          "<td><span class=\"badge\">" + F4.ui.esc(r.idProdotto) + "</span></td>" +
+          "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm || "") + "</span></td>" +
+          "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
+          "<td>" + F4.ui.esc(r.formaMateriale || "") + "</td>" +
+          "<td>" + F4.ui.esc(r.dimensioni || "") + "</td>" +
+          "<td>" + F4.ui.esc(r.famigliaColore || "") + "</td>" +
+          "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore || "") + "</span></td>" +
+          "<td>" + F4.ui.esc(r.unitaMisura || "ml") + "</td>" +
+          "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
+          "<td><strong>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</strong></td>" +
           "<td><strong>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</strong></td>" +
-          "<td class=\"" + sprecoClass + "\">" + F4.ui.fmtNum(r.spreco, 2) + "</td>" +
-          "<td>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</td>";
-        if (vediPrezzi) html += "<td>" + F4.ui.fmtEuro(r.valoreUnitario) + "</td>";
+          "<td class=\"" + sc + "\"><strong>" + F4.ui.fmtNum(r.spreco, 2) + "</strong></td>";
+        if (vediPrezzi) {
+          html += "<td>" + F4.ui.fmtEuro(r.valoreUnitario) + "</td>" +
+                  "<td><strong>" + F4.ui.fmtEuro(r.valoreTotaleLotto) + "</strong></td>";
+        }
         html += "</tr>";
       });
       html += "</tbody></table></div>";
+
+      var totPezzi = rows.reduce(function(s,r){ return s + (r.quantitaPz||0); }, 0);
+      html += "<div class=\"table-footer\">Lotti: " + rows.length + " &nbsp;|&nbsp; Pezzi: " + F4.ui.fmtNum(totPezzi,0) + "</div>";
       el.innerHTML = html;
     });
   });
