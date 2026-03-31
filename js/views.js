@@ -16,8 +16,8 @@ F4.views.login = function(container) {
         "<h1 class=\"login-title\">F4 Magazzino</h1>" +
         "<p class=\"login-sub\">Gestionale Coprifili Internorm</p>" +
         "<div class=\"form-group\">" +
-          "<label class=\"f4-label\">Email</label>" +
-          "<input id=\"l-email\" type=\"email\" class=\"f4-input\" placeholder=\"nome@finestra4.it\" autocomplete=\"email\">" +
+          "<label class=\"f4-label\">Username</label>" +
+          "<input id=\"l-email\" type=\"text\" class=\"f4-input\" placeholder=\"nome@finestra4.it\" autocomplete=\"email\">" +
         "</div>" +
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Password</label>" +
