@@ -292,6 +292,23 @@ F4.views.anagrafica = function(container) {
     inizializzaFiltri();
   });
 
+  // Bind + Nuovo Articolo
+  if (F4.auth.canDo("gestioneListini")) {
+    var _btnNA = document.getElementById("anag-nuovo");
+    if (_btnNA) {
+      _btnNA.addEventListener("click", function() {
+        F4.ui.modalCreaProdotto({}, function(newId) {
+          F4.ui.ok("Articolo " + newId + " creato");
+          F4.ui.showSpinner("Aggiornamento...");
+          F4.api.getProdotti({ stato: "Attivo" }, function(e2, r2) {
+            F4.ui.hideSpinner();
+            if (!e2 && r2 && r2.success) { allProdotti = r2.data || []; inizializzaFiltri(); }
+          });
+        });
+      });
+    }
+  }
+
   F4.ui.showSpinner("Caricamento prodotti...");
   F4.api.getProdotti({ stato: "Attivo" }, function(err, res) {
     F4.ui.hideSpinner();
@@ -1871,8 +1888,13 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
   ];
   var materiali = ["PVC","Alluminio","Legno","PVC Espanso"];
 
+  // Mostra la modale subito con select fornitore vuoto, poi popola
   var html =
     "<div class=\"form-grid\">" +
+      "<div class=\"form-group full-width\">" +
+        "<label class=\"f4-label\">Fornitore *</label>" +
+        "<select id=\"cp-for\" class=\"f4-input\"><option value=\"\">Caricamento...</option></select>" +
+      "</div>" +
       "<div class=\"form-group\">" +
         "<label class=\"f4-label\">Tipologia *</label>" +
         "<select id=\"cp-tip\" class=\"f4-input\">" +
@@ -1896,7 +1918,7 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
         "<input id=\"cp-mis\" class=\"f4-input\" placeholder=\"es. 30/3\" value=\"" + (prefill.dimensioni || "") + "\">" +
       "</div>" +
       "<div class=\"form-group\">" +
-        "<label class=\"f4-label\">Cod. Internorm</label>" +
+        "<label class=\"f4-label\">Codice Prodotto Fornitore</label>" +
         "<input id=\"cp-cod\" class=\"f4-input\" placeholder=\"es. 61520\" value=\"" + (prefill.codiceInternorm || "") + "\">" +
       "</div>" +
       "<div class=\"form-group\">" +
@@ -1915,7 +1937,7 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
         "</select>" +
       "</div>" +
     "</div>" +
-    "<div class=\"section-title\" style=\"margin-top:1rem;\">Prezzi Listino Attivo (opzionali)</div>" +
+    "<div class=\"section-title\" style=\"margin-top:1rem;\">Prezzi — Listino Attivo del Fornitore (opzionali)</div>" +
     "<div class=\"form-grid\">" +
       "<div class=\"form-group\">" +
         "<label class=\"f4-label\">Tipo Barra</label>" +
@@ -1927,18 +1949,22 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
       "</div>" +
       "<div class=\"form-group\">" +
         "<label class=\"f4-label\">Imposto Fisso ml (&#8364;)</label>" +
-        "<input id=\"cp-imp\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 12.00\"></div>" +
+        "<input id=\"cp-imp\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 12.00\">" +
+      "</div>" +
       "<div class=\"form-group\">" +
         "<label class=\"f4-label\">Prezzo ml Listino (&#8364;)</label>" +
-        "<input id=\"cp-pml\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 17.40\"></div>" +
+        "<input id=\"cp-pml\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 17.40\">" +
+      "</div>" +
       "<div class=\"form-group\">" +
         "<label class=\"f4-label\">Prezzo Barra Listino (&#8364;)</label>" +
-        "<input id=\"cp-pbar\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 104.80\"></div>" +
+        "<input id=\"cp-pbar\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 104.80\">" +
+      "</div>" +
     "</div>";
 
   F4.ui.modal("Nuovo Articolo", html, [
     { label: "Annulla", cls: "btn-ghost" },
     { label: "Crea Articolo", cls: "btn-primary", chiudi: false, action: function() {
+      var fornitore = document.getElementById("cp-for").value;
       var tip = document.getElementById("cp-tip").value;
       var mat = document.getElementById("cp-mat").value;
       var fam = document.getElementById("cp-fam").value.trim();
@@ -1948,10 +1974,14 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
       var um  = document.getElementById("cp-um").value;
       var tipBarra = document.getElementById("cp-tipo-barra").value.trim();
       var lunBarra = parseFloat(document.getElementById("cp-lun-barra").value) || 6;
-      var impFisso = parseFloat(document.getElementById("cp-imp").value)  || null;
-      var prezzoMl = parseFloat(document.getElementById("cp-pml").value)  || null;
-      var prezzoBar= parseFloat(document.getElementById("cp-pbar").value) || null;
+      var impEl  = document.getElementById("cp-imp").value;
+      var pmlEl  = document.getElementById("cp-pml").value;
+      var pbarEl = document.getElementById("cp-pbar").value;
+      var impFisso  = impEl  ? parseFloat(impEl)  : null;
+      var prezzoMl  = pmlEl  ? parseFloat(pmlEl)  : null;
+      var prezzoBar = pbarEl ? parseFloat(pbarEl) : null;
 
+      if (!fornitore) { F4.ui.err("Seleziona il Fornitore"); return; }
       if (!tip) { F4.ui.err("Seleziona la Tipologia"); return; }
       if (!mat) { F4.ui.err("Seleziona il Materiale"); return; }
       if (!fam) { F4.ui.err("Inserisci la Famiglia Colore"); return; }
@@ -1959,6 +1989,7 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
 
       F4.ui.showSpinner("Creazione articolo...");
       F4.api.creaProdotto({
+        idFornitore:     fornitore,
         categoria:       tip,
         formaMateriale:  mat,
         dimensioni:      mis,
@@ -1979,6 +2010,27 @@ F4.ui.modalCreaProdotto = function(prefill, callback) {
       });
     }}
   ]);
+
+  // Carica fornitori nel select dopo che la modale e aperta
+  setTimeout(function() {
+    F4.api.getFornitori(function(e, r) {
+      var selFor = document.getElementById("cp-for");
+      if (!selFor) return;
+      if (e || !r || !r.success || !r.data || !r.data.length) {
+        selFor.innerHTML = "<option value=\"\">Nessun fornitore trovato</option>";
+        return;
+      }
+      selFor.innerHTML = "<option value=\"\">Seleziona fornitore...</option>";
+      r.data.forEach(function(f) {
+        var opt = document.createElement("option");
+        opt.value = f.idFornitore;
+        opt.textContent = f.nomeFornitore;
+        // Se c'e un solo fornitore lo preseleziona
+        if (r.data.length === 1) opt.selected = true;
+        selFor.appendChild(opt);
+      });
+    });
+  }, 100);
 };
 
 
