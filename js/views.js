@@ -738,9 +738,10 @@ F4.views.trasferimento = function(container) {
 };
 
 // ============================================================
-// VIEW: SFRIDO INTELLIGENTE
+// VIEW: SFRIDO INTELLIGENTE — con filtri a cascata
 // ============================================================
 F4.views.sfrido = function(container) {
+  var vediPrezzi = F4.auth.canDo("vediPrezzi");
   container.innerHTML =
     "<div class=\"view-header\">" +
       "<h2 class=\"view-title\">&#9986; Sfrido Intelligente</h2>" +
@@ -753,18 +754,49 @@ F4.views.sfrido = function(container) {
           "<input id=\"sf-ml\" type=\"number\" min=\"0.01\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 1.85\">" +
         "</div>" +
         "<div class=\"form-group\">" +
-          "<label class=\"f4-label\">Magazzino (opzionale)</label>" +
+          "<label class=\"f4-label\">Magazzino</label>" +
           "<select id=\"sf-mag\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
         "</div>" +
       "</div>" +
-      "<div class=\"form-actions\">" +
+      "<div class=\"section-title\" style=\"margin-top:1rem;\">Filtri Prodotto (opzionali)</div>" +
+      "<div class=\"form-grid\">" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Tipologia</label>" +
+          "<select id=\"sf-tip\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Materiale</label>" +
+          "<select id=\"sf-mat\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Cod. Internorm</label>" +
+          "<select id=\"sf-cod\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Misura</label>" +
+          "<select id=\"sf-mis\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Famiglia Colore</label>" +
+          "<select id=\"sf-fam\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Colore</label>" +
+          "<select id=\"sf-col\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
+        "</div>" +
+      "</div>" +
+      "<div class=\"form-actions\" style=\"margin-top:1rem;\">" +
         "<button id=\"sf-btn\" class=\"btn btn-accent\">&#128269; Cerca Sfrido</button>" +
+        "<button id=\"sf-reset\" class=\"btn btn-ghost\">&#8635; Reset</button>" +
       "</div>" +
     "</div>" +
     "<div id=\"sf-result\"></div>";
 
-  var vediPrezzi = F4.auth.canDo("vediPrezzi");
+  var allProdotti = [];
+  var IDS_SF   = ["sf-tip","sf-mat","sf-cod","sf-mis","sf-fam","sf-col"];
+  var CAMPI_SF = ["categoria","formaMateriale","codiceInternorm","dimensioniHxlxsp","famigliaColore","codiceColore"];
 
+  // Carica magazzini
   F4.api.getMagazzini(function(err, res) {
     if (err || !res || !res.success) return;
     var sel = document.getElementById("sf-mag");
@@ -777,26 +809,107 @@ F4.views.sfrido = function(container) {
     });
   });
 
+  // Carica prodotti per filtri a cascata
+  F4.api.getProdotti({ stato: "Attivo" }, function(err, res) {
+    if (err || !res || !res.success) return;
+    allProdotti = res.data || [];
+    _inizializzaFiltriSfrido();
+  });
+
+  function _unique(arr) {
+    var seen = {};
+    return arr.filter(function(v) { if (!v || seen[v]) return false; seen[v] = true; return true; }).sort();
+  }
+
+  function _valSF(id) { var el = document.getElementById(id); return el ? el.value : ""; }
+
+  function _subsetSF(idx) {
+    return allProdotti.filter(function(p) {
+      for (var i = 0; i < idx; i++) {
+        var v = _valSF(IDS_SF[i]);
+        if (v && (p[CAMPI_SF[i]] || "") !== v) return false;
+      }
+      return true;
+    });
+  }
+
+  function _popolaSelSF(id, vals, keepVal) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var curr = keepVal !== undefined ? keepVal : sel.value;
+    sel.innerHTML = "<option value=\"\">Tutti</option>";
+    vals.forEach(function(v) {
+      var opt = document.createElement("option");
+      opt.value = v; opt.textContent = v;
+      if (v === curr) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function _inizializzaFiltriSfrido() {
+    IDS_SF.forEach(function(id, i) {
+      var vals = _unique(allProdotti.map(function(p) { return p[CAMPI_SF[i]] || ""; }).filter(Boolean));
+      _popolaSelSF(id, vals, "");
+      document.getElementById(id).addEventListener("change", function() {
+        for (var j = i + 1; j < IDS_SF.length; j++) {
+          var base = _subsetSF(j);
+          var vals2 = _unique(base.map(function(p) { return p[CAMPI_SF[j]] || ""; }).filter(Boolean));
+          var currVal = _valSF(IDS_SF[j]);
+          if (currVal && vals2.indexOf(currVal) === -1) currVal = "";
+          _popolaSelSF(IDS_SF[j], vals2, currVal);
+        }
+      });
+    });
+  }
+
+  document.getElementById("sf-reset").addEventListener("click", function() {
+    IDS_SF.forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ""; });
+    document.getElementById("sf-ml").value = "";
+    document.getElementById("sf-result").innerHTML = "";
+    _inizializzaFiltriSfrido();
+  });
+
   document.getElementById("sf-btn").addEventListener("click", function() {
     var ml  = parseFloat(document.getElementById("sf-ml").value);
     var mag = document.getElementById("sf-mag").value;
     if (!ml || ml <= 0) { F4.ui.err("Inserisci una lunghezza valida"); return; }
+
+    // Trova idProdotto se selezionato un colore specifico
+    var tip = _valSF("sf-tip");
+    var mat = _valSF("sf-mat");
+    var cod = _valSF("sf-cod");
+    var mis = _valSF("sf-mis");
+    var fam = _valSF("sf-fam");
+    var col = _valSF("sf-col");
+
     F4.ui.showSpinner("Ricerca sfrido...");
     F4.api.cercaSfrido(ml, null, mag || null, function(err, res) {
       F4.ui.hideSpinner();
       var el = document.getElementById("sf-result");
       if (!el) return;
       if (err || !res || !res.success) { el.innerHTML = F4.ui.renderTabellaVuota("Errore ricerca"); return; }
-      if (!res.data || res.data.length === 0) {
-        el.innerHTML = "<div class=\"alert-box alert-warn\">&#9888; Nessun residuo utile trovato per " + ml + " ml. Verificare le giacenze o considerare una barra intera.</div>";
+
+      // Filtra lato client per i filtri prodotto selezionati
+      var rows = (res.data || []).filter(function(r) {
+        if (tip && r.categoria !== tip) return false;
+        if (mat && r.formaMateriale !== mat) return false;
+        if (cod && (r.codiceInternorm || "") !== cod) return false;
+        if (mis && (r.dimensioni || r.dimensioniHxlxsp || "") !== mis) return false;
+        if (fam && r.famigliaColore !== fam) return false;
+        if (col && r.codiceColore !== col) return false;
+        return true;
+      });
+
+      if (rows.length === 0) {
+        el.innerHTML = "<div class=\"alert-box alert-warn\">&#9888; Nessun residuo utile trovato per " + ml + " ml con i filtri selezionati.</div>";
         return;
       }
-      var html = "<div class=\"section-title\">Residui disponibili (" + res.trovati + " trovati, ordinati per spreco minimo)</div>";
+      var html = "<div class=\"section-title\">Residui disponibili (" + rows.length + " trovati, ordinati per spreco minimo)</div>";
       html += "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
-        "<th>Lotto</th><th>Prodotto</th><th>Magazzino</th><th>Lungh. Residuo (ml)</th><th>Spreco (ml)</th><th>Pezzi disp.</th>";
-      if (vediPrezzi) html += "<th>Valore Unitario</th>";
+        "<th>Lotto</th><th>Prodotto</th><th>Magazzino</th><th>Lungh.(ml)</th><th>Spreco(ml)</th><th>Pezzi</th>";
+      if (vediPrezzi) html += "<th>Val.Unitario</th>";
       html += "</tr></thead><tbody>";
-      res.data.forEach(function(r) {
+      rows.forEach(function(r) {
         var sprecoClass = r.spreco < 0.3 ? "text-ok" : (r.spreco < 1 ? "text-warn" : "");
         html += "<tr>" +
           "<td><span class=\"badge badge-ok\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
@@ -960,6 +1073,389 @@ F4.views.magazzini = function(container) {
   }
 
   carica();
+};
+
+// ============================================================
+// VIEW: GESTIONE LISTINI E SCONTI — COMPLETA
+// ============================================================
+F4.views.listini = function(container) {
+  var canEdit = F4.auth.canDo("gestioneListini");
+
+  container.innerHTML =
+    "<div class=\"view-header\">" +
+      "<h2 class=\"view-title\">&#128181; Listini e Sconti</h2>" +
+    "</div>" +
+    "<div class=\"op-card glass\">" +
+      "<div class=\"section-title\">Fornitori</div>" +
+      "<div id=\"lst-fornitori\"><div class=\"loading-placeholder\">Caricamento...</div></div>" +
+      (canEdit ? "<button id=\"lst-nuovo-for\" class=\"btn btn-secondary\" style=\"margin-top:0.75rem\">&#43; Nuovo Fornitore</button>" : "") +
+    "</div>" +
+    "<div id=\"lst-listini-section\" class=\"hidden\"></div>" +
+    "<div id=\"lst-sconti-section\" class=\"hidden\"></div>" +
+    "<div id=\"lst-prezzi-section\" class=\"hidden\"></div>";
+
+  var statoListini = { idFornitore: null, idListino: null };
+
+  // ——— FORNITORI ———
+  function caricaFornitori() {
+    F4.api.getFornitori(function(err, res) {
+      var el = document.getElementById("lst-fornitori");
+      if (!el) return;
+      if (err || !res || !res.success || !res.data || !res.data.length) {
+        el.innerHTML = F4.ui.renderTabellaVuota("Nessun fornitore. Eseguire la migrazione.");
+        return;
+      }
+      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr><th>ID</th><th>Fornitore</th><th>Stato</th><th></th></tr></thead><tbody>";
+      res.data.forEach(function(f) {
+        html += "<tr>" +
+          "<td><span class=\"badge\">" + F4.ui.esc(f.idFornitore) + "</span></td>" +
+          "<td><strong>" + F4.ui.esc(f.nomeFornitore) + "</strong></td>" +
+          "<td><span class=\"badge badge-ok\">" + F4.ui.esc(f.stato) + "</span></td>" +
+          "<td><button class=\"btn btn-sm btn-primary\" onclick=\"F4._lstSelFornitore('" + F4.ui.esc(f.idFornitore) + "','" + F4.ui.esc(f.nomeFornitore) + "')\">Gestisci Listini</button></td>" +
+          "</tr>";
+      });
+      html += "</tbody></table></div>";
+      el.innerHTML = html;
+    });
+  }
+
+  F4._lstSelFornitore = function(idFor, nomeFor) {
+    statoListini.idFornitore = idFor;
+    statoListini.idListino   = null;
+    var sec = document.getElementById("lst-listini-section");
+    sec.classList.remove("hidden");
+    sec.innerHTML =
+      "<div class=\"op-card glass\">" +
+        "<div class=\"section-title\">Listini — " + F4.ui.esc(nomeFor) + "</div>" +
+        "<div id=\"lst-listini-table\"><div class=\"loading-placeholder\">Caricamento...</div></div>" +
+        (canEdit ?
+          "<div class=\"form-actions\" style=\"margin-top:0.75rem;\">" +
+            "<button id=\"lst-nuovo-lst\" class=\"btn btn-primary\">&#43; Nuovo Listino</button>" +
+          "</div>" : "") +
+      "</div>";
+    caricaListini(idFor);
+    if (canEdit) {
+      document.getElementById("lst-nuovo-lst").addEventListener("click", function() {
+        modalNuovoListino(idFor);
+      });
+    }
+  };
+
+  function caricaListini(idFor) {
+    F4.api.getListiniTestata({idFornitore: idFor}, function(err, res) {
+      var el = document.getElementById("lst-listini-table");
+      if (!el) return;
+      if (err || !res || !res.success || !res.data || !res.data.length) {
+        el.innerHTML = F4.ui.renderTabellaVuota("Nessun listino per questo fornitore");
+        return;
+      }
+      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr><th>ID</th><th>Nome</th><th>Data Inizio</th><th>Stato</th><th></th></tr></thead><tbody>";
+      res.data.forEach(function(l) {
+        var statoClass = l.stato === "Attivo" ? "badge-ok" : (l.stato === "Bozza" ? "badge-warn" : "");
+        html += "<tr>" +
+          "<td><span class=\"badge\">" + F4.ui.esc(l.idListino) + "</span></td>" +
+          "<td><strong>" + F4.ui.esc(l.nomeListino) + "</strong></td>" +
+          "<td>" + F4.ui.esc(l.dataInizio) + "</td>" +
+          "<td><span class=\"badge " + statoClass + "\">" + F4.ui.esc(l.stato) + "</span></td>" +
+          "<td style=\"display:flex;gap:0.4rem;\">" +
+            "<button class=\"btn btn-sm btn-primary\" onclick=\"F4._lstSelListino('" + F4.ui.esc(l.idListino) + "','" + F4.ui.esc(l.nomeListino) + "')\">Gestisci</button>" +
+            (canEdit && l.stato === "Bozza" ? "<button class=\"btn btn-sm btn-warning\" onclick=\"F4._lstAttivaListino('" + F4.ui.esc(l.idListino) + "')\">Attiva</button>" : "") +
+          "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+      el.innerHTML = html;
+    });
+  }
+
+  F4._lstAttivaListino = function(idListino) {
+    F4.ui.conferma("Attiva Listino", "Attivare il listino " + idListino + "? Il listino attuale diventerà Storico.", function() {
+      F4.ui.showSpinner("Attivazione...");
+      F4.api.attivaListino(idListino, function(e, r) {
+        F4.ui.hideSpinner();
+        if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+        F4.ui.ok("Listino attivato");
+        caricaListini(statoListini.idFornitore);
+      });
+    });
+  };
+
+  function modalNuovoListino(idFor) {
+    var html = "<div class=\"form-grid\">" +
+      "<div class=\"form-group full-width\"><label class=\"f4-label\">Nome Listino</label><input id=\"nl-nome\" class=\"f4-input\" placeholder=\"es. Internorm 2027\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Data Inizio (gg/mm/aaaa)</label><input id=\"nl-data\" class=\"f4-input\" placeholder=\"01/01/2027\"></div>" +
+      "</div>" +
+      "<p style=\"color:var(--text-secondary);font-size:0.85rem;margin-top:0.75rem\">Il listino viene creato in stato Bozza. Gli sconti vengono preimpostati al 36% per tutte le tipologie e possono essere modificati.</p>";
+    F4.ui.modal("Nuovo Listino", html, [
+      { label: "Annulla", cls: "btn-ghost" },
+      { label: "Crea Listino", cls: "btn-primary", chiudi: false, action: function() {
+        var nome = document.getElementById("nl-nome").value.trim();
+        var data = document.getElementById("nl-data").value.trim();
+        if (!nome || !data) { F4.ui.err("Compila tutti i campi"); return; }
+        F4.ui.showSpinner("Creazione...");
+        F4.api.creaListinoTestata({idFornitore: idFor, nomeListino: nome, dataInizio: data}, function(e, r) {
+          F4.ui.hideSpinner();
+          if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+          F4.ui.ok("Listino " + r.idListino + " creato in Bozza");
+          F4.ui.closeModal();
+          caricaListini(idFor);
+        });
+      }}
+    ]);
+  }
+
+  // ——— SCONTI E PREZZI PER LISTINO ———
+  F4._lstSelListino = function(idListino, nomeListino) {
+    statoListini.idListino = idListino;
+    var secSc = document.getElementById("lst-sconti-section");
+    var secPr = document.getElementById("lst-prezzi-section");
+    secSc.classList.remove("hidden");
+    secPr.classList.remove("hidden");
+
+    secSc.innerHTML =
+      "<div class=\"op-card glass\">" +
+        "<div class=\"section-title\">Sconti per Tipologia — " + F4.ui.esc(nomeListino) + "</div>" +
+        "<p style=\"color:var(--text-secondary);font-size:0.85rem;margin-bottom:1rem\">Ogni tipologia ha il proprio sconto applicato al prezzo di listino.</p>" +
+        "<div id=\"lst-sconti-table\"><div class=\"loading-placeholder\">Caricamento...</div></div>" +
+      "</div>";
+
+    secPr.innerHTML =
+      "<div class=\"op-card glass\">" +
+        "<div class=\"section-title\">Prezzi Listino — " + F4.ui.esc(nomeListino) + "</div>" +
+        "<div class=\"toolbar\">" +
+          "<select id=\"lst-f-tip\" class=\"f4-input select-sm\"><option value=\"\">Tutte le tipologie</option></select>" +
+          "<select id=\"lst-f-fam\" class=\"f4-input select-sm\"><option value=\"\">Tutte le famiglie</option></select>" +
+          "<button id=\"lst-filtra\" class=\"btn btn-primary\">Filtra</button>" +
+          (canEdit ? "<button id=\"lst-mod-famiglia\" class=\"btn btn-warning\">&#9998; Modifica per Famiglia</button>" : "") +
+        "</div>" +
+        "<div id=\"lst-prezzi-table\"><div class=\"loading-placeholder\">Caricamento prezzi...</div></div>" +
+      "</div>";
+
+    caricaSconti(idListino);
+    caricaPrezziListino(idListino, {});
+
+    document.getElementById("lst-filtra").addEventListener("click", function() {
+      caricaPrezziListino(idListino, {
+        tipologia:      document.getElementById("lst-f-tip").value,
+        famigliaColore: document.getElementById("lst-f-fam").value
+      });
+    });
+
+    if (canEdit) {
+      document.getElementById("lst-mod-famiglia").addEventListener("click", function() {
+        modalModificaFamiglia(idListino);
+      });
+    }
+  };
+
+  function caricaSconti(idListino) {
+    F4.api.getScontiListino(idListino, function(err, res) {
+      var el = document.getElementById("lst-sconti-table");
+      if (!el) return;
+      if (err || !res || !res.success || !res.data || !res.data.length) {
+        el.innerHTML = F4.ui.renderTabellaVuota("Nessuno sconto configurato");
+        return;
+      }
+      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr><th>Tipologia</th><th>Sconto (%)</th>" + (canEdit ? "<th></th>" : "") + "</tr></thead><tbody>";
+      res.data.forEach(function(s) {
+        html += "<tr>" +
+          "<td>" + F4.ui.esc(s.tipologia) + "</td>" +
+          "<td><strong>" + s.scontoPerc.toFixed(1) + " %</strong></td>";
+        if (canEdit) {
+          html += "<td><button class=\"btn btn-sm btn-secondary\" onclick=\"F4._lstEditSconto('" + F4.ui.esc(idListino) + "','" + F4.ui.esc(s.tipologia) + "'," + s.sconto + ")\">Modifica</button></td>";
+        }
+        html += "</tr>";
+      });
+      html += "</tbody></table></div>";
+      el.innerHTML = html;
+    });
+  }
+
+  F4._lstEditSconto = function(idListino, tipologia, scontoCorrente) {
+    var html = "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Tipologia</label>" +
+      "<div style=\"padding:0.5rem 0;font-weight:600\">" + F4.ui.esc(tipologia) + "</div>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Nuovo Sconto (%)</label>" +
+      "<input id=\"es-sconto\" type=\"number\" min=\"0\" max=\"100\" step=\"0.1\" class=\"f4-input\" value=\"" + (scontoCorrente * 100).toFixed(1) + "\"></div>";
+    F4.ui.modal("Modifica Sconto — " + tipologia, html, [
+      { label: "Annulla", cls: "btn-ghost" },
+      { label: "Salva", cls: "btn-primary", chiudi: false, action: function() {
+        var pct = parseFloat(document.getElementById("es-sconto").value);
+        if (isNaN(pct) || pct < 0 || pct > 100) { F4.ui.err("Valore tra 0 e 100"); return; }
+        F4.ui.showSpinner("Salvataggio...");
+        F4.api.setScontoTipologia({idListino: idListino, tipologia: tipologia, sconto: pct / 100}, function(e, r) {
+          F4.ui.hideSpinner();
+          if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+          F4.ui.ok("Sconto aggiornato a " + pct.toFixed(1) + "% per " + tipologia);
+          F4.ui.closeModal();
+          caricaSconti(idListino);
+        });
+      }}
+    ]);
+  };
+
+  function caricaPrezziListino(idListino, filtri) {
+    var el = document.getElementById("lst-prezzi-table");
+    if (el) el.innerHTML = "<div class=\"loading-placeholder\">Caricamento...</div>";
+    F4.api.getListinoDettaglio({
+      idListino:      idListino,
+      tipologia:      filtri.tipologia      || "",
+      famigliaColore: filtri.famigliaColore || ""
+    }, function(err, res) {
+      if (!el) return;
+      if (err || !res || !res.success || !res.data || !res.data.length) {
+        el.innerHTML = F4.ui.renderTabellaVuota("Nessun prezzo trovato");
+        return;
+      }
+
+      // Popola filtri tipologia e famiglia
+      var tipSet = {}, famSet = {};
+      res.data.forEach(function(r) { tipSet[r.categoria] = true; famSet[r.famigliaColore] = true; });
+      var selTip = document.getElementById("lst-f-tip");
+      var selFam = document.getElementById("lst-f-fam");
+      if (selTip && selTip.children.length === 1) {
+        Object.keys(tipSet).sort().forEach(function(v) {
+          var o = document.createElement("option"); o.value = v; o.textContent = v; selTip.appendChild(o);
+        });
+      }
+      if (selFam && selFam.children.length === 1) {
+        Object.keys(famSet).sort().forEach(function(v) {
+          var o = document.createElement("option"); o.value = v; o.textContent = v; selFam.appendChild(o);
+        });
+      }
+
+      var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+        "<th>Cod.Int.</th><th>Tipologia</th><th>Misura</th><th>Famiglia</th><th>Colore</th>" +
+        "<th>Imp.Fisso</th><th>Prezzo ml</th><th>Prezzo Barra</th><th>Sconto</th><th>Netto ml</th><th>Netto Barra</th>" +
+        (canEdit ? "<th></th>" : "") +
+        "</tr></thead><tbody>";
+      res.data.slice(0, 300).forEach(function(r) {
+        html += "<tr>" +
+          "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm) + "</span></td>" +
+          "<td>" + F4.ui.esc(r.categoria) + "</td>" +
+          "<td>" + F4.ui.esc(r.dimensioni) + "</td>" +
+          "<td>" + F4.ui.esc(r.famigliaColore) + "</td>" +
+          "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore) + "</span></td>" +
+          "<td>" + F4.ui.fmtEuro(r.impostoFissoMl) + "</td>" +
+          "<td>" + F4.ui.fmtEuro(r.prezzoMlListino) + "</td>" +
+          "<td>" + F4.ui.fmtEuro(r.prezzoBarraList) + "</td>" +
+          "<td><strong>" + r.scontoPerc.toFixed(1) + "%</strong></td>" +
+          "<td>" + F4.ui.fmtEuro(r.prezzoMlNetto) + "</td>" +
+          "<td><strong>" + F4.ui.fmtEuro(r.prezzoBarraNetto) + "</strong></td>";
+        if (canEdit) {
+          html += "<td><button class=\"btn btn-sm btn-secondary\" onclick=\"F4._lstEditPrezzo('" + F4.ui.esc(idListino) + "','" + F4.ui.esc(r.idProdotto) + "'," + (r.impostoFissoMl||0) + "," + (r.prezzoMlListino||0) + "," + (r.prezzoBarraList||0) + ")\">&#9998;</button></td>";
+        }
+        html += "</tr>";
+      });
+      html += "</tbody></table></div>";
+      html += "<div class=\"table-footer\">Visualizzati: " + Math.min(res.data.length, 300) + " / " + res.totale + " record</div>";
+      el.innerHTML = html;
+    });
+  }
+
+  F4._lstEditPrezzo = function(idListino, idProdotto, impFisso, prezzoMl, prezzoBar) {
+    var html = "<div class=\"form-group\"><label class=\"f4-label\">ID Prodotto</label><div style=\"padding:0.5rem 0;font-weight:600\">" + F4.ui.esc(idProdotto) + "</div></div>" +
+      "<div class=\"form-grid\">" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Imposto Fisso ml (€)</label><input id=\"ep-imp\" type=\"number\" step=\"0.01\" class=\"f4-input\" value=\"" + impFisso + "\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Prezzo ml Listino (€)</label><input id=\"ep-ml\" type=\"number\" step=\"0.01\" class=\"f4-input\" value=\"" + prezzoMl + "\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Prezzo Barra Listino (€)</label><input id=\"ep-bar\" type=\"number\" step=\"0.01\" class=\"f4-input\" value=\"" + prezzoBar + "\"></div>" +
+      "</div>";
+    F4.ui.modal("Modifica Prezzo Singolo", html, [
+      { label: "Annulla", cls: "btn-ghost" },
+      { label: "Salva", cls: "btn-primary", chiudi: false, action: function() {
+        var dati = {
+          idListino:      idListino,
+          idProdotto:     idProdotto,
+          impostoFissoMl:  parseFloat(document.getElementById("ep-imp").value),
+          prezzoMlListino: parseFloat(document.getElementById("ep-ml").value),
+          prezzoBarraList: parseFloat(document.getElementById("ep-bar").value)
+        };
+        F4.ui.showSpinner("Salvataggio...");
+        F4.api.aggiornaPrezzoSingolo(dati, function(e, r) {
+          F4.ui.hideSpinner();
+          if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+          F4.ui.ok("Prezzo aggiornato");
+          F4.ui.closeModal();
+          caricaPrezziListino(idListino, {});
+        });
+      }}
+    ]);
+  };
+
+  function modalModificaFamiglia(idListino) {
+    var html = "<div class=\"form-grid\">" +
+      "<div class=\"form-group full-width\"><label class=\"f4-label\">Tipologia</label>" +
+      "<select id=\"mf-tip\" class=\"f4-input\">" +
+        "<option value=\"Piatta PVC\">Piatta PVC</option>" +
+        "<option value=\"Piatta PVC c/incisione\">Piatta PVC c/incisione</option>" +
+        "<option value=\"Piatta Alluminio\">Piatta Alluminio</option>" +
+        "<option value=\"Angolare PVC\">Angolare PVC</option>" +
+        "<option value=\"Angolare Alluminio\">Angolare Alluminio</option>" +
+        "<option value=\"Angolare non 90°\">Angolare non 90°</option>" +
+        "<option value=\"Angolare PVC Espanso\">Angolare PVC Espanso</option>" +
+        "<option value=\"Aggancio Ang. PVC Esp.\">Aggancio Ang. PVC Esp.</option>" +
+        "<option value=\"Squadretta PVC Esp.\">Squadretta PVC Esp.</option>" +
+        "<option value=\"Coprifuga Legno Impl.\">Coprifuga Legno Impl.</option>" +
+      "</select></div>" +
+      "<div class=\"form-group full-width\"><label class=\"f4-label\">Famiglia Colore</label>" +
+      "<input id=\"mf-fam\" class=\"f4-input\" placeholder=\"es. Bianco, Decor, Standard, EL/HDS/HF/HFM\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Imposto Fisso ml (€) — lascia vuoto per non modificare</label><input id=\"mf-imp\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 12.00\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Prezzo ml Listino (€)</label><input id=\"mf-ml\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 8.90\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Prezzo Barra Listino (€)</label><input id=\"mf-bar\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 58.90\"></div>" +
+      "</div>" +
+      "<p style=\"color:var(--text-secondary);font-size:0.85rem;margin-top:0.75rem\">Verranno aggiornati tutti i prodotti della tipologia e famiglia selezionate. I campi lasciati vuoti non verranno modificati.</p>";
+
+    F4.ui.modal("Modifica Prezzi per Famiglia", html, [
+      { label: "Annulla", cls: "btn-ghost" },
+      { label: "Aggiorna Famiglia", cls: "btn-warning", chiudi: false, action: function() {
+        var tip = document.getElementById("mf-tip").value;
+        var fam = document.getElementById("mf-fam").value.trim();
+        if (!fam) { F4.ui.err("Inserisci la famiglia colore"); return; }
+        var dati = { idListino: idListino, tipologia: tip, famigliaColore: fam };
+        var imp = document.getElementById("mf-imp").value;
+        var ml  = document.getElementById("mf-ml").value;
+        var bar = document.getElementById("mf-bar").value;
+        if (imp) dati.impostoFissoMl  = parseFloat(imp);
+        if (ml)  dati.prezzoMlListino = parseFloat(ml);
+        if (bar) dati.prezzoBarraList = parseFloat(bar);
+        if (!imp && !ml && !bar) { F4.ui.err("Inserisci almeno un prezzo"); return; }
+        F4.ui.showSpinner("Aggiornamento prezzi...");
+        F4.api.aggiornaPrezziPerFamiglia(dati, function(e, r) {
+          F4.ui.hideSpinner();
+          if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+          F4.ui.ok("Aggiornati " + r.aggiornati + " prodotti per " + tip + " / " + fam);
+          F4.ui.closeModal();
+          caricaPrezziListino(idListino, {});
+        });
+      }}
+    ]);
+  }
+
+  // Nuovo fornitore
+  if (canEdit) {
+    var btnFor = document.getElementById("lst-nuovo-for");
+    if (btnFor) btnFor.addEventListener("click", function() {
+      var html = "<div class=\"form-group\"><label class=\"f4-label\">Nome Fornitore</label><input id=\"nf-nome\" class=\"f4-input\" placeholder=\"es. Schuco\"></div>";
+      F4.ui.modal("Nuovo Fornitore", html, [
+        { label: "Annulla", cls: "btn-ghost" },
+        { label: "Crea", cls: "btn-primary", chiudi: false, action: function() {
+          var nome = document.getElementById("nf-nome").value.trim();
+          if (!nome) { F4.ui.err("Nome obbligatorio"); return; }
+          F4.ui.showSpinner("Creazione...");
+          F4.api.creaFornitore({nomeFornitore: nome}, function(e, r) {
+            F4.ui.hideSpinner();
+            if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore"); return; }
+            F4.ui.ok("Fornitore " + r.idFornitore + " creato");
+            F4.ui.closeModal();
+            caricaFornitori();
+          });
+        }}
+      ]);
+    });
+  }
+
+  caricaFornitori();
 };
 
 // ============================================================
@@ -1158,5 +1654,169 @@ F4.views.impostazioni = function(container) {
     });
   }
 };
+
+window.F4 = F4;
+
+// ============================================================
+// VIEW: REPORTISTICA ISO
+// ============================================================
+F4.views.reportistica = function(container) {
+  var vediPrezzi = F4.auth.canDo("vediPrezzi");
+  var vediAudit  = F4.auth.canDo("audit");
+
+  container.innerHTML =
+    "<div class=\"view-header\">" +
+      "<h2 class=\"view-title\">&#128438; Reportistica ISO</h2>" +
+      "<p class=\"view-sub\">Genera report personalizzati in formato ISO con cartiglio</p>" +
+    "</div>" +
+
+    "<div class=\"op-card glass\">" +
+      "<div class=\"section-title\">Seleziona Tipo Report</div>" +
+      "<div class=\"form-grid\">" +
+        "<div class=\"form-group full-width\">" +
+          "<label class=\"f4-label\">Tipo Report</label>" +
+          "<select id=\"rpt-tipo\" class=\"f4-input\">" +
+            "<option value=\"\">Seleziona...</option>" +
+            "<option value=\"GIACENZE\">Inventario Giacenze</option>" +
+            (vediAudit ? "<option value=\"MOVIMENTI\">Storico Movimenti</option>" : "") +
+            "<option value=\"SCHEDA_PRODOTTO\">Scheda Prodotto</option>" +
+            "<option value=\"RIEPILOGO_MAGAZZINI\">Riepilogo Magazzini</option>" +
+          "</select>" +
+        "</div>" +
+      "</div>" +
+      "<div id=\"rpt-filtri\" style=\"margin-top:1rem;\"></div>" +
+      "<div class=\"form-actions\" style=\"margin-top:1rem;\">" +
+        "<button id=\"rpt-genera\" class=\"btn btn-primary\" disabled>&#128438; Genera Anteprima e PDF</button>" +
+      "</div>" +
+    "</div>";
+
+  var magazzini = [];
+  F4.api.getMagazzini(function(err, res) {
+    if (!err && res && res.success) magazzini = res.data || [];
+  });
+
+  document.getElementById("rpt-tipo").addEventListener("change", function() {
+    var tipo = this.value;
+    document.getElementById("rpt-genera").disabled = !tipo;
+    _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit);
+  });
+
+  document.getElementById("rpt-genera").addEventListener("click", function() {
+    _eseguiReport(magazzini);
+  });
+};
+
+function _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi, vediAudit) {
+  var el = document.getElementById("rpt-filtri");
+  if (!el) return;
+
+  if (!tipo) { el.innerHTML = ""; return; }
+
+  var html = "<div class=\"section-title\" style=\"margin-top:0;\">Filtri Report</div><div class=\"form-grid\">";
+
+  if (tipo === "GIACENZE") {
+    html += "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Magazzino</label>" +
+      "<select id=\"rpt-f-mag\" class=\"f4-input\"><option value=\"\">Tutti</option>" +
+      magazzini.map(function(m) { return "<option value=\"" + m.idMagazzino + "\">" + m.nomeMagazzino + "</option>"; }).join("") +
+      "</select></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Tipo Pezzo</label>" +
+      "<select id=\"rpt-f-tipo\" class=\"f4-input\">" +
+        "<option value=\"\">Tutti</option>" +
+        "<option value=\"Barra\">Barre</option>" +
+        "<option value=\"Residuo\">Residui</option>" +
+      "</select></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Solo giacenze positive</label>" +
+      "<select id=\"rpt-f-attivi\" class=\"f4-input\">" +
+        "<option value=\"true\">Si (predefinito)</option>" +
+        "<option value=\"false\">No (includi vuoti)</option>" +
+      "</select></div>";
+  }
+
+  if (tipo === "MOVIMENTI" && vediAudit) {
+    html += "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Data Inizio (gg/mm/aaaa)</label>" +
+      "<input id=\"rpt-f-dstart\" type=\"date\" class=\"f4-input\"></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Data Fine (gg/mm/aaaa)</label>" +
+      "<input id=\"rpt-f-dend\" type=\"date\" class=\"f4-input\"></div>" +
+      "<div class=\"form-group\">" +
+      "<label class=\"f4-label\">Tipo Movimento</label>" +
+      "<select id=\"rpt-f-tmov\" class=\"f4-input\">" +
+        "<option value=\"\">Tutti</option>" +
+        "<option value=\"CARICO\">Carico</option>" +
+        "<option value=\"SCARICO\">Scarico</option>" +
+        "<option value=\"TRASFERIMENTO\">Trasferimento</option>" +
+        "<option value=\"RETTIFICA\">Rettifica</option>" +
+      "</select></div>";
+  }
+
+  if (tipo === "SCHEDA_PRODOTTO") {
+    html += "<div class=\"form-group full-width\">" +
+      "<label class=\"f4-label\">ID Prodotto *</label>" +
+      "<input id=\"rpt-f-prod\" class=\"f4-input\" placeholder=\"es. PRD-00001\"></div>";
+  }
+
+  html += "</div>";
+  el.innerHTML = html;
+}
+
+function _eseguiReport(magazzini) {
+  var tipo = document.getElementById("rpt-tipo").value;
+  if (!tipo) { F4.ui.err("Seleziona un tipo di report"); return; }
+
+  var params = {};
+
+  if (tipo === "GIACENZE") {
+    var magEl    = document.getElementById("rpt-f-mag");
+    var tipoEl   = document.getElementById("rpt-f-tipo");
+    var attiviEl = document.getElementById("rpt-f-attivi");
+    if (magEl && magEl.value)    params.idMagazzino = magEl.value;
+    if (tipoEl && tipoEl.value)  params.tipoPezzo   = tipoEl.value;
+    if (attiviEl)                params.soloAttivi  = attiviEl.value;
+  }
+
+  if (tipo === "MOVIMENTI") {
+    var dstartEl = document.getElementById("rpt-f-dstart");
+    var dendEl   = document.getElementById("rpt-f-dend");
+    var tmovEl   = document.getElementById("rpt-f-tmov");
+    if (dstartEl && dstartEl.value) {
+      var ps = dstartEl.value.split("-");
+      params.dataInizio = ps[2] + "/" + ps[1] + "/" + ps[0];
+    }
+    if (dendEl && dendEl.value) {
+      var pe = dendEl.value.split("-");
+      params.dataFine = pe[2] + "/" + pe[1] + "/" + pe[0];
+    }
+    if (tmovEl && tmovEl.value) params.tipoMovimento = tmovEl.value;
+  }
+
+  if (tipo === "SCHEDA_PRODOTTO") {
+    var prodEl = document.getElementById("rpt-f-prod");
+    if (!prodEl || !prodEl.value.trim()) { F4.ui.err("Inserisci l'ID Prodotto"); return; }
+    params.idProdotto = prodEl.value.trim();
+  }
+
+  var actionMap = {
+    "GIACENZE":            "getReportGiacenze",
+    "MOVIMENTI":           "getReportMovimenti",
+    "SCHEDA_PRODOTTO":     "getSchedaProdotto",
+    "RIEPILOGO_MAGAZZINI": "getReportRiepilogoMagazzini"
+  };
+
+  F4.ui.showSpinner("Generazione report...");
+  F4.api.call(actionMap[tipo], params, function(err, res) {
+    F4.ui.hideSpinner();
+    if (err || !res || !res.success) {
+      F4.ui.err("Errore: " + (res ? res.error : (err ? err.message : "sconosciuto")));
+      return;
+    }
+    F4.ui.ok("Report generato — apertura anteprima...");
+    setTimeout(function() { F4.report.apriAnteprima(res); }, 300);
+  });
+}
+
 
 window.F4 = F4;
