@@ -315,7 +315,7 @@ F4.report = (function() {
       "<!DOCTYPE html><html lang=\"it\"><head>" +
       "<meta charset=\"UTF-8\">" +
       "<title>F4 Report &mdash; " + _nomeDocumento(data.tipo) + "</title>" +
-      "<link rel=\"stylesheet\" href=\"" + window.location.origin + window.location.pathname + "css/print.css\">" +
+      "<link rel=\"stylesheet\" href=\"https://marcotabaro-ship-it.github.io/f4-magazzino/css/print.css\">" +
       "<style>body{background:#e0e0e0;padding:20px;margin:0;} " +
       ".toolbar{background:#1a1a2e;color:#fff;padding:12px 20px;display:flex;gap:12px;align-items:center;margin-bottom:20px;border-radius:8px;}" +
       ".toolbar button{background:#c9a84c;color:#000;border:none;padding:8px 20px;font-weight:700;border-radius:6px;cursor:pointer;font-size:14px;}" +
