@@ -1,6 +1,6 @@
 // ============================================================
-// F4 Magazzino — app.js v2.3
-// Regole: no backtick, no apostrofo italiano in stringhe single-quoted
+// F4 Magazzino — app.js v3
+// Fix: login usa res.utente+token, ruoli allineati al backend
 // ============================================================
 
 var F4 = F4 || {};
@@ -19,16 +19,21 @@ F4.auth = (function() {
   }
 
   function isLogged() { _load(); return !!(_user && _user.token); }
+  function getUser()  { _load(); return _user; }
+  function getToken() { _load(); return _user ? (_user.token || null) : null; }
 
-  function getUser() { _load(); return _user; }
-
-  function getToken() { _load(); return _user ? _user.token : null; }
-
-  function isAdmin() { _load(); return _user && (_user.ruolo === "Admin" || _user.ruolo === "ADMIN"); }
+  function isAdmin() {
+    _load();
+    if (!_user) return false;
+    var r = (_user.ruolo || "").toLowerCase();
+    return r === "admin";
+  }
 
   function isResponsabile() {
     _load();
-    return _user && (_user.ruolo === "Responsabile" || _user.ruolo === "RESPONSABILE" || isAdmin());
+    if (!_user) return false;
+    var r = (_user.ruolo || "").toLowerCase();
+    return r === "admin" || r === "management" || r === "amministrazione";
   }
 
   function canDo(perm) {
@@ -37,9 +42,12 @@ F4.auth = (function() {
     var ruolo = (_user.ruolo || "").toLowerCase();
     if (ruolo === "admin") return true;
     var perms = {
-      vediPrezzi:      ["responsabile", "admin"],
-      gestioneListini: ["responsabile", "admin"],
-      reportistica:    ["responsabile", "admin"]
+      vediPrezzi:      ["management", "amministrazione"],
+      gestioneListini: ["management"],
+      gestioneMagazzini: ["management"],
+      reportistica:    ["management", "amministrazione"],
+      movimenti:       ["operativo", "management", "amministrazione"],
+      audit:           ["management", "amministrazione"]
     };
     return perms[perm] ? perms[perm].indexOf(ruolo) !== -1 : false;
   }
@@ -54,8 +62,9 @@ F4.auth = (function() {
     try { sessionStorage.removeItem("f4_user"); } catch(e) {}
   }
 
-  return { isLogged:isLogged, getUser:getUser, getToken:getToken, isAdmin:isAdmin,
-           isResponsabile:isResponsabile, canDo:canDo, login:login, logout:logout };
+  return { isLogged:isLogged, getUser:getUser, getToken:getToken,
+           isAdmin:isAdmin, isResponsabile:isResponsabile,
+           canDo:canDo, login:login, logout:logout };
 })();
 
 // ============================================================
@@ -64,7 +73,10 @@ F4.auth = (function() {
 F4.ui = (function() {
   function showSpinner(msg) {
     var el = document.getElementById("f4-spinner");
-    if (el) { el.querySelector(".spinner-msg") && (el.querySelector(".spinner-msg").textContent = msg || "Caricamento..."); el.style.display = "flex"; }
+    if (!el) return;
+    var txt = el.querySelector(".spinner-msg");
+    if (txt) txt.textContent = msg || "Caricamento...";
+    el.style.display = "flex";
   }
   function hideSpinner() {
     var el = document.getElementById("f4-spinner");
@@ -76,23 +88,24 @@ F4.ui = (function() {
     t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(function() { t.classList.add("show"); }, 10);
-    setTimeout(function() { t.classList.remove("show"); setTimeout(function() { t.remove(); }, 300); }, 3000);
+    setTimeout(function() { t.classList.remove("show"); setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 300); }, 3000);
   }
   function err(msg) { toast(msg, "error"); }
   function conferma(titolo, testo, onOk) {
     var overlay = document.createElement("div");
     overlay.className = "f4-modal-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:9998;padding:1rem;";
     overlay.innerHTML =
-      "<div class=\"f4-modal\">" +
-      "<div class=\"f4-modal-title\">" + titolo + "</div>" +
-      "<div class=\"f4-modal-body\">" + testo + "</div>" +
-      "<div class=\"f4-modal-actions\">" +
-      "<button class=\"btn btn-outline\" id=\"m-cancel\">Annulla</button>" +
+      "<div class=\"glass\" style=\"max-width:480px;width:100%;padding:2rem;border-radius:12px;\">" +
+      "<div style=\"font-size:1.1rem;font-weight:700;margin-bottom:.75rem;\">" + titolo + "</div>" +
+      "<div style=\"color:#A0A8B8;margin-bottom:1.5rem;\">" + testo + "</div>" +
+      "<div style=\"display:flex;gap:.75rem;justify-content:flex-end;\">" +
+      "<button class=\"btn btn-ghost\" id=\"m-cancel\">Annulla</button>" +
       "<button class=\"btn btn-primary\" id=\"m-ok\">Conferma</button>" +
       "</div></div>";
     document.body.appendChild(overlay);
-    overlay.querySelector("#m-cancel").addEventListener("click", function() { overlay.remove(); });
-    overlay.querySelector("#m-ok").addEventListener("click", function() { overlay.remove(); onOk(); });
+    overlay.querySelector("#m-cancel").addEventListener("click", function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+    overlay.querySelector("#m-ok").addEventListener("click", function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); onOk(); });
   }
   return { showSpinner:showSpinner, hideSpinner:hideSpinner, toast:toast, err:err, conferma:conferma };
 })();
@@ -101,14 +114,10 @@ F4.ui = (function() {
 // ROUTER
 // ============================================================
 F4.router = (function() {
-  var _current = null;
   var _routes = {};
-
   function register(name, fn) { _routes[name] = fn; }
-
   function go(name) {
     if (!F4.auth.isLogged() && name !== "login") { go("login"); return; }
-    _current = name;
     var container = document.getElementById("view-container");
     if (!container) return;
     container.innerHTML = "";
@@ -120,10 +129,7 @@ F4.router = (function() {
     if (fn) { fn(container); }
     else { container.innerHTML = "<div class=\"empty-state\">Vista non trovata: " + name + "</div>"; }
   }
-
-  function current() { return _current; }
-
-  return { register:register, go:go, current:current };
+  return { register:register, go:go };
 })();
 
 // ============================================================
@@ -132,41 +138,34 @@ F4.router = (function() {
 function _buildNav() {
   var nav = document.getElementById("sidebar-nav");
   if (!nav) return;
-
-  var logged = F4.auth.isLogged();
-  if (!logged) { nav.innerHTML = ""; return; }
-
+  if (!F4.auth.isLogged()) { nav.innerHTML = ""; return; }
   var isAdmin = F4.auth.isAdmin();
-  var isResp = F4.auth.isResponsabile();
-
+  var isResp  = F4.auth.isResponsabile();
   var voci = [
-    { id:"dashboard",   lbl:"Plancia Operativa",  icon:"&#127968;", always:true },
-    { id:"anagrafica",  lbl:"Anagrafica Prodotti", icon:"&#128196;", always:true },
-    { id:"giacenze",    lbl:"Giacenze e Lotti",    icon:"&#128200;", always:true },
-    { id:"carico",      lbl:"Carico Merci",        icon:"&#128229;", always:true },
-    { id:"scarico",     lbl:"Scarico Merci",       icon:"&#128230;", always:true },
-    { id:"trasferimento", lbl:"Trasferimento",     icon:"&#8644;",   always:true },
-    { id:"sfrido",      lbl:"Sfrido Intelligente", icon:"&#9986;&#65039;", always:true },
-    { id:"macchinaTempo", lbl:"Macchina del Tempo",icon:"&#128336;", always:true },
-    { id:"listini",     lbl:"Listini e Sconti",    icon:"&#128181;", resp:true },
-    { id:"reportistica",lbl:"Report ISO",          icon:"&#128196;", resp:true },
-    { id:"magazzini",   lbl:"Gestione Magazzini",  icon:"&#127968;", admin:true },
-    { id:"utenti",      lbl:"Gestione Utenti",     icon:"&#128100;", admin:true },
-    { id:"auditLog",    lbl:"Audit Log",           icon:"&#128220;", admin:true },
-    { id:"impostazioni",lbl:"Impostazioni",        icon:"&#9881;&#65039;", admin:true }
+    { id:"dashboard",    lbl:"Plancia Operativa",  icon:"&#127968;", always:true },
+    { id:"anagrafica",   lbl:"Anagrafica Prodotti", icon:"&#128196;", always:true },
+    { id:"giacenze",     lbl:"Giacenze e Lotti",    icon:"&#128200;", always:true },
+    { id:"carico",       lbl:"Carico Merci",        icon:"&#128229;", always:true },
+    { id:"scarico",      lbl:"Scarico Merci",       icon:"&#128230;", always:true },
+    { id:"trasferimento",lbl:"Trasferimento",       icon:"&#8644;",   always:true },
+    { id:"sfrido",       lbl:"Sfrido Intelligente", icon:"&#9986;",   always:true },
+    { id:"macchinaTempo",lbl:"Macchina del Tempo",  icon:"&#128336;", always:true },
+    { id:"listini",      lbl:"Listini e Sconti",    icon:"&#128181;", resp:true },
+    { id:"reportistica", lbl:"Report ISO",          icon:"&#128196;", resp:true },
+    { id:"magazzini",    lbl:"Gestione Magazzini",  icon:"&#127968;", admin:true },
+    { id:"utenti",       lbl:"Gestione Utenti",     icon:"&#128100;", admin:true },
+    { id:"auditLog",     lbl:"Audit Log",           icon:"&#128220;", admin:true },
+    { id:"impostazioni", lbl:"Impostazioni",        icon:"&#9881;",   admin:true }
   ];
-
   var html = "";
   voci.forEach(function(v) {
     if (v.admin && !isAdmin) return;
-    if (v.resp && !isResp) return;
+    if (v.resp  && !isResp)  return;
     html += "<a class=\"nav-item\" data-route=\"" + v.id + "\" href=\"#\">" +
       "<span class=\"nav-icon\">" + v.icon + "</span>" +
-      "<span class=\"nav-label\">" + v.lbl + "</span>" +
-      "</a>";
+      "<span class=\"nav-label\">" + v.lbl + "</span></a>";
   });
   nav.innerHTML = html;
-
   nav.querySelectorAll(".nav-item").forEach(function(a) {
     a.addEventListener("click", function(e) {
       e.preventDefault();
@@ -186,36 +185,36 @@ function _setActiveNav(routeName) {
 function _updateUserBar() {
   var u = F4.auth.getUser();
   var el = document.getElementById("user-name");
-  if (el && u) el.textContent = u.nomeCompleto || u.username || "Utente";
+  if (el && u) el.textContent = u.nomeCompleto || u.nome || u.username || "Utente";
 }
 
 function _toggleSidebar(force) {
   var sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
-  if (force === true) sidebar.classList.add("open");
+  if (force === true)       sidebar.classList.add("open");
   else if (force === false) sidebar.classList.remove("open");
-  else sidebar.classList.toggle("open");
+  else                      sidebar.classList.toggle("open");
 }
 
 // ============================================================
 // REGISTRAZIONE VISTE
 // ============================================================
 function _registerRoutes() {
-  F4.router.register("login",        _viewLogin);
-  F4.router.register("dashboard",    F4.views.dashboard);
-  F4.router.register("anagrafica",   F4.views.anagrafica);
-  F4.router.register("giacenze",     F4.views.giacenze);
-  F4.router.register("carico",       F4.views.carico);
-  F4.router.register("scarico",      F4.views.scarico);
-  F4.router.register("trasferimento",F4.views.trasferimento);
-  F4.router.register("sfrido",       F4.views.sfrido);
-  F4.router.register("macchinaTempo",F4.views.macchinaTempo);
-  F4.router.register("listini",      F4.views.listini);
-  F4.router.register("reportistica", F4.views.reportistica);
-  F4.router.register("magazzini",    F4.views.magazzini);
-  F4.router.register("utenti",       F4.views.utenti);
-  F4.router.register("auditLog",     F4.views.auditLog);
-  F4.router.register("impostazioni", F4.views.impostazioni);
+  F4.router.register("login",         _viewLogin);
+  F4.router.register("dashboard",     F4.views.dashboard);
+  F4.router.register("anagrafica",    F4.views.anagrafica);
+  F4.router.register("giacenze",      F4.views.giacenze);
+  F4.router.register("carico",        F4.views.carico);
+  F4.router.register("scarico",       F4.views.scarico);
+  F4.router.register("trasferimento", F4.views.trasferimento);
+  F4.router.register("sfrido",        F4.views.sfrido);
+  F4.router.register("macchinaTempo", F4.views.macchinaTempo);
+  F4.router.register("listini",       F4.views.listini);
+  F4.router.register("reportistica",  F4.views.reportistica);
+  F4.router.register("magazzini",     F4.views.magazzini);
+  F4.router.register("utenti",        F4.views.utenti);
+  F4.router.register("auditLog",      F4.views.auditLog);
+  F4.router.register("impostazioni",  F4.views.impostazioni);
 }
 
 // ============================================================
@@ -225,57 +224,54 @@ function _viewLogin(container) {
   container.innerHTML =
     "<div class=\"login-wrap\">" +
     "<div class=\"login-card glass\">" +
-    "<div class=\"login-logo\"><img src=\"icon.png\" alt=\"F4\"></div>" +
+    "<div class=\"login-logo\"><img src=\"icon.png\" alt=\"F4\" onerror=\"this.style.display='none'\"></div>" +
     "<h1 class=\"login-title\">F4 Magazzino</h1>" +
     "<p class=\"login-sub\">Gestione Magazzino Coprifili</p>" +
     "<div class=\"form-group\"><label class=\"f4-label\">Username</label>" +
-    "<input id=\"lg-user\" type=\"text\" class=\"f4-input\" placeholder=\"Il tuo username\" autocomplete=\"username\"></div>" +
+    "<input id=\"lg-user\" type=\"text\" class=\"f4-input\" placeholder=\"Username\" autocomplete=\"username\"></div>" +
     "<div class=\"form-group\"><label class=\"f4-label\">Password</label>" +
     "<input id=\"lg-pwd\" type=\"password\" class=\"f4-input\" placeholder=\"Password\" autocomplete=\"current-password\"></div>" +
     "<button id=\"lg-btn\" class=\"btn btn-primary btn-full\">Accedi</button>" +
-    "<div id=\"lg-err\" class=\"error-msg\" style=\"display:none\"></div>" +
+    "<div id=\"lg-err\" style=\"display:none;margin-top:.75rem;padding:.6rem .9rem;background:rgba(244,67,54,.15);border:1px solid rgba(244,67,54,.4);color:#FF8A80;border-radius:8px;font-size:.88rem;\"></div>" +
     "</div></div>";
-
-  function doLogin() {
-    var u = document.getElementById("lg-user").value.trim();
-    var p = document.getElementById("lg-pwd").value;
-    if (!u || !p) { showErr("Inserisci username e password"); return; }
-    F4.ui.showSpinner("Accesso in corso...");
-    F4.api.login({username: u, password: p}, function(err, res) {
-      F4.ui.hideSpinner();
-      if (err || !res || !res.success) {
-        showErr(res ? res.message : "Errore di connessione");
-        return;
-      }
-      F4.auth.login(res.user);
-      _buildNav();
-      F4.router.go("dashboard");
-    });
-  }
 
   function showErr(msg) {
     var el = document.getElementById("lg-err");
     if (el) { el.textContent = msg; el.style.display = "block"; }
   }
 
+  function doLogin() {
+    var u = (document.getElementById("lg-user").value || "").trim();
+    var p =  document.getElementById("lg-pwd").value  || "";
+    if (!u || !p) { showErr("Inserisci username e password"); return; }
+    F4.ui.showSpinner("Accesso in corso...");
+    F4.api.login({username: u, password: p}, function(err, res) {
+      F4.ui.hideSpinner();
+      if (err || !res || !res.success) {
+        showErr(res ? (res.error || res.message || "Accesso negato") : "Errore di connessione");
+        return;
+      }
+      // FIX CRITICO: backend ritorna res.utente + res.token (non res.user)
+      var userData = res.utente || {};
+      userData.token = res.token;
+      F4.auth.login(userData);
+      _buildNav();
+      F4.router.go("dashboard");
+    });
+  }
+
   document.getElementById("lg-btn").addEventListener("click", doLogin);
-  document.getElementById("lg-pwd").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") doLogin();
-  });
-  document.getElementById("lg-user").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") document.getElementById("lg-pwd").focus();
-  });
+  document.getElementById("lg-pwd").addEventListener("keydown", function(e) { if (e.key === "Enter") doLogin(); });
+  document.getElementById("lg-user").addEventListener("keydown", function(e) { if (e.key === "Enter") document.getElementById("lg-pwd").focus(); });
 }
 
 // ============================================================
 // INIZIALIZZAZIONE
 // ============================================================
 document.addEventListener("DOMContentLoaded", function() {
-  // Hamburger
   var hamburger = document.getElementById("hamburger");
   if (hamburger) hamburger.addEventListener("click", function() { _toggleSidebar(); });
 
-  // Pulsante Esci
   var esciBtn = document.getElementById("btn-esci");
   if (esciBtn) esciBtn.addEventListener("click", function() {
     F4.auth.logout();
@@ -283,10 +279,8 @@ document.addEventListener("DOMContentLoaded", function() {
     F4.router.go("login");
   });
 
-  // Registra tutte le viste
   _registerRoutes();
 
-  // Route iniziale
   if (F4.auth.isLogged()) {
     _buildNav();
     F4.router.go("dashboard");
