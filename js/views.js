@@ -56,26 +56,24 @@ F4.views.dashboard = function(container) {
     "</div>" +
     "<div id=\"dash-content\"><div class=\"loading-placeholder\">Caricamento dashboard...</div></div>";
 
-  // Carica magazzini e dashboard in parallelo
-  var magNomi  = {};
-  var dashData = null;
+  var magInfoCache = {};
   var chiamate = 0;
+  var dashData = null;
 
   function prova() {
     chiamate++;
-    if (chiamate < 2) return; // aspetta entrambe le chiamate
+    if (chiamate < 2) return;
     renderDash();
   }
 
   F4.api.getMagazzini(function(err, res) {
     if (!err && res && res.success) {
-      (res.data || []).forEach(function(m) { magNomi[m.idMagazzino] = m.nomeMagazzino; });
+      (res.data || []).forEach(function(m) {
+        magInfoCache[m.idMagazzino] = {nome: m.nomeMagazzino, tipo: m.tipoUbicazione || "Magazzino"};
+      });
     }
     prova();
   });
-
-  // Chiama anche tutti i magazzini inclusi inattivi via getGiacenze per mappare IDs
-  F4.api.call("getMagazzini", {}, function(err, res) { /* already handled above */ });
 
   F4.api.getDashboard(function(err, res) {
     if (!err && res && res.success) dashData = res.data;
@@ -85,11 +83,10 @@ F4.views.dashboard = function(container) {
   function renderDash() {
     var el = document.getElementById("dash-content");
     if (!el) return;
-    if (!dashData) {
-      el.innerHTML = F4.ui.renderTabellaVuota("Errore nel caricamento");
-      return;
-    }
+    if (!dashData) { el.innerHTML = F4.ui.renderTabellaVuota("Errore nel caricamento"); return; }
     var d = dashData;
+    var vediPrezzi = F4.auth.canDo("vediPrezzi");
+
     var html = "<div class=\"stats-grid\">";
 
     html += "<div class=\"stat-card glass\">" +
@@ -98,7 +95,7 @@ F4.views.dashboard = function(container) {
       "<div class=\"stat-value\">" + F4.ui.fmtNum(d.totalePezzi, 0) + "</div>" +
       "</div>";
 
-    if (d.totaleValore !== undefined) {
+    if (d.totaleValore !== undefined && d.totaleValore !== null) {
       html += "<div class=\"stat-card glass\">" +
         "<div class=\"stat-icon\">&#128176;</div>" +
         "<div class=\"stat-label\">Valore Totale Stock</div>" +
@@ -106,38 +103,99 @@ F4.views.dashboard = function(container) {
         "</div>";
     }
 
-    var magKeys = Object.keys(d.perMagazzino || {});
+    var nMag = Object.keys(d.perMagazzino || {}).length;
+    var nShr = Object.keys(d.perShowroom  || {}).length;
+
     html += "<div class=\"stat-card glass\">" +
       "<div class=\"stat-icon\">&#127968;</div>" +
-      "<div class=\"stat-label\">Magazzini Attivi</div>" +
-      "<div class=\"stat-value\">" + magKeys.length + "</div>" +
+      "<div class=\"stat-label\">Magazzini Operativi</div>" +
+      "<div class=\"stat-value\">" + nMag + "</div>" +
       "</div>";
+
+    if (nShr > 0) {
+      html += "<div class=\"stat-card glass\">" +
+        "<div class=\"stat-icon\">&#127981;</div>" +
+        "<div class=\"stat-label\">Showroom</div>" +
+        "<div class=\"stat-value\">" + nShr + "</div>" +
+        "</div>";
+    }
 
     html += "</div>";
 
-    if (magKeys.length > 0) {
-      html += "<div class=\"section-title\">Dettaglio per Magazzino</div>" +
+    // Dettaglio magazzini operativi
+    if (nMag > 0) {
+      html += "<div class=\"section-title\">&#127968; Magazzini Operativi</div>" +
         "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
         "<th>Magazzino</th><th>Pezzi</th>" +
-        (d.totaleValore !== undefined ? "<th>Valore</th>" : "") +
+        (vediPrezzi ? "<th>Valore</th>" : "") +
         "</tr></thead><tbody>";
-      magKeys.forEach(function(k) {
-        var m    = d.perMagazzino[k];
-        var nome = magNomi[k] || (d.nomeMagazzini && d.nomeMagazzini[k]) || k;
+      var totMagPz = 0; var totMagVal = 0;
+      Object.keys(d.perMagazzino).forEach(function(k) {
+        var m = d.perMagazzino[k];
+        var nome = m.nome || (magInfoCache[k] && magInfoCache[k].nome) || k;
+        totMagPz  += m.quantita || 0;
+        totMagVal += m.valore   || 0;
         html += "<tr><td><strong>" + F4.ui.esc(nome) + "</strong></td>" +
           "<td>" + F4.ui.fmtNum(m.quantita, 0) + "</td>";
-        if (d.totaleValore !== undefined) html += "<td>" + F4.ui.fmtEuro(m.valore) + "</td>";
+        if (vediPrezzi) html += "<td>" + F4.ui.fmtEuro(m.valore) + "</td>";
+        html += "</tr>";
+      });
+      html += "<tr style=\"font-weight:bold;border-top:2px solid var(--accent-gold);\">" +
+        "<td>TOTALE MAGAZZINI</td><td>" + F4.ui.fmtNum(totMagPz, 0) + "</td>";
+      if (vediPrezzi) html += "<td><strong>" + F4.ui.fmtEuro(totMagVal) + "</strong></td>";
+      html += "</tr></tbody></table></div>";
+    }
+
+    // Dettaglio showroom
+    if (nShr > 0) {
+      html += "<div class=\"section-title\" style=\"margin-top:1.5rem\">&#127981; Showroom</div>" +
+        "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+        "<th>Showroom</th><th>Pezzi</th>" +
+        (vediPrezzi ? "<th>Valore</th>" : "") +
+        "</tr></thead><tbody>";
+      var totShrPz = 0; var totShrVal = 0;
+      Object.keys(d.perShowroom).forEach(function(k) {
+        var m = d.perShowroom[k];
+        var nome = m.nome || (magInfoCache[k] && magInfoCache[k].nome) || k;
+        totShrPz  += m.quantita || 0;
+        totShrVal += m.valore   || 0;
+        html += "<tr><td><strong>" + F4.ui.esc(nome) + "</strong></td>" +
+          "<td>" + F4.ui.fmtNum(m.quantita, 0) + "</td>";
+        if (vediPrezzi) html += "<td>" + F4.ui.fmtEuro(m.valore) + "</td>";
+        html += "</tr>";
+      });
+      html += "<tr style=\"font-weight:bold;border-top:2px solid var(--accent-gold);\">" +
+        "<td>TOTALE SHOWROOM</td><td>" + F4.ui.fmtNum(totShrPz, 0) + "</td>";
+      if (vediPrezzi) html += "<td><strong>" + F4.ui.fmtEuro(totShrVal) + "</strong></td>";
+      html += "</tr></tbody></table></div>";
+    }
+
+    // Stato merce
+    var perStato = d.perStatoMerce || {};
+    if (Object.keys(perStato).length > 1) {
+      html += "<div class=\"section-title\" style=\"margin-top:1.5rem\">&#128203; Per Stato Merce</div>" +
+        "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
+        "<th>Stato</th><th>Pezzi</th>" +
+        (vediPrezzi ? "<th>Valore</th>" : "") +
+        "</tr></thead><tbody>";
+      Object.keys(perStato).forEach(function(s) {
+        var st = perStato[s];
+        html += "<tr><td>" + F4.ui.esc(s) + "</td><td>" + F4.ui.fmtNum(st.quantita, 0) + "</td>";
+        if (vediPrezzi) html += "<td>" + F4.ui.fmtEuro(st.valore) + "</td>";
         html += "</tr>";
       });
       html += "</tbody></table></div>";
     }
 
-    html += "<div class=\"dash-actions\">" +
-      "<button class=\"btn btn-primary\" onclick=\"F4.router.go('carico')\">&#10133; Carico</button>" +
-      "<button class=\"btn btn-warning\" onclick=\"F4.router.go('scarico')\">&#10134; Scarico</button>" +
-      "<button class=\"btn btn-secondary\" onclick=\"F4.router.go('trasferimento')\">&#8644; Trasferimento</button>" +
-      "<button class=\"btn btn-accent\" onclick=\"F4.router.go('sfrido')\">&#9986; Cerca Sfrido</button>" +
-      "</div>";
+    // Pulsanti azione (solo chi puo fare movimenti)
+    if (F4.auth.canDo("movimenti")) {
+      html += "<div class=\"dash-actions\">" +
+        "<button class=\"btn btn-primary\" onclick=\"F4.router.go('carico')\">&#10133; Carico</button>" +
+        "<button class=\"btn btn-warning\" onclick=\"F4.router.go('scarico')\">&#10134; Scarico</button>" +
+        "<button class=\"btn btn-secondary\" onclick=\"F4.router.go('trasferimento')\">&#8644; Trasferimento</button>" +
+        "<button class=\"btn btn-accent\" onclick=\"F4.router.go('sfrido')\">&#9986; Cerca Sfrido</button>" +
+        "</div>";
+    }
 
     el.innerHTML = html;
   }
@@ -154,6 +212,10 @@ F4.views.anagrafica = function(container) {
     "</div>" +
     "<div class=\"anag-filters glass\" style=\"padding:1rem;margin-bottom:1rem;\">" +
       "<div class=\"form-grid\">" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Divisione</label>" +
+          "<select id=\"f-div\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Tipologia</label>" +
           "<select id=\"f-tip\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
@@ -186,8 +248,8 @@ F4.views.anagrafica = function(container) {
     "<div id=\"anag-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
   var allProdotti = [];
-  var IDS   = ["f-tip","f-mat","f-cod","f-mis","f-fam","f-col"];
-  var CAMPI = ["categoria","formaMateriale","codiceInternorm","dimensioniHxlxsp","famigliaColore","codiceColore"];
+  var IDS   = ["f-div","f-tip","f-mat","f-cod","f-mis","f-fam","f-col"];
+  var CAMPI = ["divisione","categoria","formaMateriale","codiceInternorm","dimensioniHxlxsp","famigliaColore","codiceColore"];
 
   function val(id) {
     var el = document.getElementById(id);
@@ -365,6 +427,20 @@ F4.views.giacenze = function(container) {
           "<label class=\"f4-label\">Colore</label>" +
           "<select id=\"gf-col\" class=\"f4-input\"><option value=\"\">Tutti</option></select>" +
         "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Stato Merce</label>" +
+          "<select id=\"gf-stato\" class=\"f4-input\">" +
+            "<option value=\"\">Tutti</option>" +
+            "<option value=\"Stock\">Stock</option>" +
+            "<option value=\"Campionatura\">Campionatura</option>" +
+            "<option value=\"Non conforme\">Non conforme</option>" +
+            "<option value=\"Merce in transito\">Merce in transito</option>" +
+          "</select>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Divisione</label>" +
+          "<select id=\"gf-div\" class=\"f4-input\"><option value=\"\">Tutte</option></select>" +
+        "</div>" +
       "</div>" +
       "<div style=\"margin-top:0.75rem;\">" +
         "<button id=\"gf-reset\" class=\"btn btn-ghost\">&#8635; Reset</button>" +
@@ -373,8 +449,8 @@ F4.views.giacenze = function(container) {
     "<div id=\"giac-list\"><div class=\"loading-placeholder\">Caricamento...</div></div>";
 
   var allRighe = [];
-  var IDS_GF   = ["gf-tip","gf-mat","gf-cod","gf-mis","gf-fam","gf-col"];
-  var CAMPI_GF = ["categoria","formaMateriale","codiceInternorm","dimensioni","famigliaColore","codiceColore"];
+  var IDS_GF   = ["gf-tip","gf-mat","gf-cod","gf-mis","gf-fam","gf-col","gf-div"];
+  var CAMPI_GF = ["categoria","formaMateriale","codiceInternorm","dimensioni","famigliaColore","codiceColore","divisione"];
 
   // Carica magazzini
   F4.api.getMagazzini(function(err, res) {
@@ -464,11 +540,13 @@ F4.views.giacenze = function(container) {
   }
 
   function filtraCorrente() {
-    var mag  = valGF("gf-mag");
-    var tipo = valGF("gf-tipo");
+    var mag   = valGF("gf-mag");
+    var tipo  = valGF("gf-tipo");
+    var stato = valGF("gf-stato");
     return allRighe.filter(function(r) {
-      if (mag  && r.idMagazzino !== mag)  return false;
-      if (tipo && r.tipoPezzo   !== tipo) return false;
+      if (mag   && r.idMagazzino !== mag)                       return false;
+      if (tipo  && r.tipoPezzo   !== tipo)                      return false;
+      if (stato && (r.statoMerce || "Stock") !== stato)         return false;
       for (var i = 0; i < IDS_GF.length; i++) {
         var v = valGF(IDS_GF[i]);
         if (v && (r[CAMPI_GF[i]] || "") !== v) return false;
@@ -484,17 +562,19 @@ F4.views.giacenze = function(container) {
     if (rows.length === 0) { el.innerHTML = F4.ui.renderTabellaVuota("Nessuna giacenza trovata"); return; }
 
     var html = "<div class=\"table-wrap\"><table class=\"f4-table\"><thead><tr>" +
-      "<th>Lotto</th><th>ID Prod.</th><th>Cod.Int.</th><th>Tipologia</th><th>Materiale</th>" +
+      "<th>Lotto</th><th>ID Prod.</th><th>Div.</th><th>Cod.Int.</th><th>Tipologia</th><th>Materiale</th>" +
       "<th>Misura</th><th>Famiglia</th><th>Colore</th><th>U.M.</th>" +
-      "<th>Magazzino</th><th>Tipo</th><th>Pezzi</th><th>Lungh.(ml)</th>";
+      "<th>Magazzino</th><th>Tipo Ubic.</th><th>Stato</th><th>Tipo Pezzo</th><th>Pezzi</th><th>Lungh.(ml)</th>";
     if (vediPrezzi) html += "<th>Val.Unit.</th><th>Val.Totale</th>";
     html += "<th>Data Carico</th></tr></thead><tbody>";
 
     rows.forEach(function(r) {
       var tc = r.tipoPezzo === "Residuo" ? "badge-warn" : "badge-ok";
+      var statoClass = r.statoMerce === "Stock" ? "badge-ok" : (r.statoMerce === "Campionatura" ? "badge-blue" : "badge-warn");
       html += "<tr>" +
         "<td><span class=\"badge\">" + F4.ui.esc(r.idLotto) + "</span></td>" +
         "<td><span class=\"badge\">" + F4.ui.esc(r.idProdotto) + "</span></td>" +
+        "<td><small>" + F4.ui.esc(r.divisione || "F4 Serr.") + "</small></td>" +
         "<td><span class=\"badge badge-blue\">" + F4.ui.esc(r.codiceInternorm || "") + "</span></td>" +
         "<td>" + F4.ui.esc(r.categoria || "") + "</td>" +
         "<td>" + F4.ui.esc(r.formaMateriale || "") + "</td>" +
@@ -503,6 +583,8 @@ F4.views.giacenze = function(container) {
         "<td><span class=\"colore-badge\">" + F4.ui.esc(r.codiceColore || "") + "</span></td>" +
         "<td>" + F4.ui.esc(r.unitaMisura || "ml") + "</td>" +
         "<td><strong>" + F4.ui.esc(r.nomeMagazzino || r.idMagazzino) + "</strong></td>" +
+        "<td><small>" + F4.ui.esc(r.tipoUbicazione || "Mag.") + "</small></td>" +
+        "<td><span class=\"badge " + statoClass + "\">" + F4.ui.esc(r.statoMerce || "Stock") + "</span></td>" +
         "<td><span class=\"badge " + tc + "\">" + F4.ui.esc(r.tipoPezzo) + "</span></td>" +
         "<td><strong>" + F4.ui.fmtNum(r.quantitaPz, 0) + "</strong></td>" +
         "<td>" + F4.ui.fmtNum(r.lunghezzaMl, 2) + "</td>";
@@ -521,7 +603,7 @@ F4.views.giacenze = function(container) {
   }
 
   document.getElementById("gf-reset").addEventListener("click", function() {
-    ["gf-mag","gf-tipo"].concat(IDS_GF).forEach(function(id) {
+    ["gf-mag","gf-tipo","gf-stato"].concat(IDS_GF).forEach(function(id) {
       var el = document.getElementById(id); if (el) el.value = "";
     });
     applicaFiltri();
@@ -552,6 +634,15 @@ F4.views.carico = function(container) {
             "<div id=\"car-prod-dd\" class=\"autocomplete-dropdown hidden\"></div>" +
           "</div>" +
           "<div id=\"car-prod-info\" class=\"prod-info-bar hidden\"></div>" +
+        "</div>" +
+        "<div class=\"form-group\">" +
+          "<label class=\"f4-label\">Stato Merce</label>" +
+          "<select id=\"car-stato\" class=\"f4-input\">" +
+            "<option value=\"Stock\">Stock</option>" +
+            "<option value=\"Campionatura\">Campionatura</option>" +
+            "<option value=\"Non conforme\">Non conforme</option>" +
+            "<option value=\"Merce in transito\">Merce in transito</option>" +
+          "</select>" +
         "</div>" +
         "<div class=\"form-group\">" +
           "<label class=\"f4-label\">Tipo Pezzo *</label>" +
@@ -1257,7 +1348,7 @@ F4.views.magazzini = function(container) {
     });
   }
 
-  F4.views._editMagazzino = function(id, nome, ind, stato) {
+  F4.views._editMagazzino = function(id, nome, tipo, ind, stato) {
     var html = "<div class=\"form-group\"><label>Nome Magazzino</label>" +
       "<input id=\"em-nome\" class=\"f4-input\" value=\"" + F4.ui.esc(nome) + "\"></div>" +
       "<div class=\"form-group\"><label>Indirizzo</label>" +
@@ -1873,6 +1964,401 @@ F4.views.impostazioni = function(container) {
 
 
 };
+
+// ============================================================
+// UTILITY: MODAL CREA PRODOTTO (usata da Anagrafica e Carico)
+// ============================================================
+F4.ui.modalCreaProdotto = function(prefill, callback) {
+  prefill = prefill || {};
+
+  var tipologie = [
+    "Piatta PVC","Piatta PVC c/incisione","Piatta Alluminio",
+    "Angolare PVC","Angolare Alluminio","Angolare non 90°",
+    "Angolare PVC Espanso","Aggancio Ang. PVC Esp.","Squadretta PVC Esp.",
+    "Coprifuga Legno Impl.","Coprifuga LA604 – barra 2,1m"
+  ];
+  var materiali = ["PVC","Alluminio","Legno","PVC Espanso"];
+
+  // Mostra la modale subito con select fornitore vuoto, poi popola
+  var html =
+    "<div class=\"form-grid\">" +
+      "<div class=\"form-group full-width\">" +
+        "<label class=\"f4-label\">Fornitore *</label>" +
+        "<select id=\"cp-for\" class=\"f4-input\"><option value=\"\">Caricamento...</option></select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Tipologia *</label>" +
+        "<select id=\"cp-tip\" class=\"f4-input\">" +
+          "<option value=\"\">Seleziona...</option>" +
+          tipologie.map(function(t) {
+            return "<option value=\"" + t + "\"" + (prefill.categoria === t ? " selected" : "") + ">" + t + "</option>";
+          }).join("") +
+        "</select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Materiale *</label>" +
+        "<select id=\"cp-mat\" class=\"f4-input\">" +
+          "<option value=\"\">Seleziona...</option>" +
+          materiali.map(function(m) {
+            return "<option value=\"" + m + "\"" + (prefill.formaMateriale === m ? " selected" : "") + ">" + m + "</option>";
+          }).join("") +
+        "</select>" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Misura (es. 30/3)</label>" +
+        "<input id=\"cp-mis\" class=\"f4-input\" placeholder=\"es. 30/3\" value=\"" + (prefill.dimensioni || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Codice Prodotto Fornitore</label>" +
+        "<input id=\"cp-cod\" class=\"f4-input\" placeholder=\"es. 61520\" value=\"" + (prefill.codiceInternorm || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Famiglia Colore *</label>" +
+        "<input id=\"cp-fam\" class=\"f4-input\" placeholder=\"es. EL/HDS/HF/HFM\" value=\"" + (prefill.famigliaColore || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Codice Colore *</label>" +
+        "<input id=\"cp-col\" class=\"f4-input\" placeholder=\"es. HDS04\" value=\"" + (prefill.codiceColore || "") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">U.M.</label>" +
+        "<select id=\"cp-um\" class=\"f4-input\">" +
+          "<option value=\"ml\">ml</option>" +
+          "<option value=\"pz\">pz</option>" +
+        "</select>" +
+      "</div>" +
+    "</div>" +
+    "<div class=\"section-title\" style=\"margin-top:1rem;\">Prezzi — Listino Attivo del Fornitore (opzionali)</div>" +
+    "<div class=\"form-grid\">" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Tipo Barra</label>" +
+        "<input id=\"cp-tipo-barra\" class=\"f4-input\" placeholder=\"es. 6m\" value=\"" + (prefill.tipoBarra || "6m") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Lunghezza Barra (m)</label>" +
+        "<input id=\"cp-lun-barra\" type=\"number\" step=\"0.1\" class=\"f4-input\" placeholder=\"es. 6\" value=\"" + (prefill.lunghezzaBarraM || "6") + "\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Imposto Fisso ml (&#8364;)</label>" +
+        "<input id=\"cp-imp\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 12.00\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Prezzo ml Listino (&#8364;)</label>" +
+        "<input id=\"cp-pml\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 17.40\">" +
+      "</div>" +
+      "<div class=\"form-group\">" +
+        "<label class=\"f4-label\">Prezzo Barra Listino (&#8364;)</label>" +
+        "<input id=\"cp-pbar\" type=\"number\" step=\"0.01\" class=\"f4-input\" placeholder=\"es. 104.80\">" +
+      "</div>" +
+    "</div>";
+
+  F4.ui.modal("Nuovo Articolo", html, [
+    { label: "Annulla", cls: "btn-ghost" },
+    { label: "Crea Articolo", cls: "btn-primary", chiudi: false, action: function() {
+      var fornitore = document.getElementById("cp-for").value;
+      var tip = document.getElementById("cp-tip").value;
+      var mat = document.getElementById("cp-mat").value;
+      var fam = document.getElementById("cp-fam").value.trim();
+      var col = document.getElementById("cp-col").value.trim();
+      var mis = document.getElementById("cp-mis").value.trim();
+      var cod = document.getElementById("cp-cod").value.trim();
+      var um  = document.getElementById("cp-um").value;
+      var tipBarra = document.getElementById("cp-tipo-barra").value.trim();
+      var lunBarra = parseFloat(document.getElementById("cp-lun-barra").value) || 6;
+      var impEl  = document.getElementById("cp-imp").value;
+      var pmlEl  = document.getElementById("cp-pml").value;
+      var pbarEl = document.getElementById("cp-pbar").value;
+      var impFisso  = impEl  ? parseFloat(impEl)  : null;
+      var prezzoMl  = pmlEl  ? parseFloat(pmlEl)  : null;
+      var prezzoBar = pbarEl ? parseFloat(pbarEl) : null;
+
+      if (!fornitore) { F4.ui.err("Seleziona il Fornitore"); return; }
+      if (!tip) { F4.ui.err("Seleziona la Tipologia"); return; }
+      if (!mat) { F4.ui.err("Seleziona il Materiale"); return; }
+      if (!fam) { F4.ui.err("Inserisci la Famiglia Colore"); return; }
+      if (!col) { F4.ui.err("Inserisci il Codice Colore"); return; }
+
+      F4.ui.showSpinner("Creazione articolo...");
+      F4.api.creaProdotto({
+        idFornitore:     fornitore,
+        categoria:       tip,
+        formaMateriale:  mat,
+        dimensioni:      mis,
+        famigliaColore:  fam,
+        codiceColore:    col,
+        codiceInternorm: cod,
+        unitaMisura:     um,
+        tipoBarra:       tipBarra,
+        lunghezzaBarraM: lunBarra,
+        impostoFissoMl:  impFisso,
+        prezzoMlListino: prezzoMl,
+        prezzoBarraList: prezzoBar
+      }, function(e, r) {
+        F4.ui.hideSpinner();
+        if (e || !r || !r.success) { F4.ui.err(r ? r.error : "Errore creazione"); return; }
+        F4.ui.closeModal();
+        if (callback) callback(r.idProdotto, { categoria: tip, formaMateriale: mat, dimensioni: mis, famigliaColore: fam, codiceColore: col });
+      });
+    }}
+  ]);
+
+  // Carica fornitori nel select dopo che la modale e aperta
+  setTimeout(function() {
+    F4.api.getFornitori(function(e, r) {
+      var selFor = document.getElementById("cp-for");
+      if (!selFor) return;
+      if (e || !r || !r.success || !r.data || !r.data.length) {
+        selFor.innerHTML = "<option value=\"\">Nessun fornitore trovato</option>";
+        return;
+      }
+      selFor.innerHTML = "<option value=\"\">Seleziona fornitore...</option>";
+      r.data.forEach(function(f) {
+        var opt = document.createElement("option");
+        opt.value = f.idFornitore;
+        opt.textContent = f.nomeFornitore;
+        // Se c'e un solo fornitore lo preseleziona
+        if (r.data.length === 1) opt.selected = true;
+        selFor.appendChild(opt);
+      });
+    });
+  }, 100);
+};
+
+
+window.F4 = F4;
+
+// ============================================================
+// VIEW: REPORTISTICA ISO — tutti i report
+// ============================================================
+F4.views.reportistica = function(container) {
+  var vediPrezzi = F4.auth.canDo("vediPrezzi");
+  var vediAudit  = F4.auth.canDo("audit");
+
+  var tipiReport = [
+    {v: "GIACENZE",           l: "Giacenze Magazzino"},
+    {v: "MOVIMENTI",          l: "Movimenti per Periodo"},
+    {v: "SCHEDA_PRODOTTO",    l: "Scheda Prodotto"},
+    {v: "RIEPILOGO_MAGAZZINI",l: "Riepilogo Magazzini"},
+    {v: "INVENTARIO_COMPLETO",l: "Inventario Completo"},
+    {v: "CAMPIONATURE",       l: "Campionature"},
+    {v: "NON_CONFORME",       l: "Merce Non Conforme"}
+  ];
+  if (vediPrezzi) tipiReport.push({v: "RIEPILOGO_ECONOMICO", l: "Riepilogo Economico"});
+
+  container.innerHTML =
+    "<div class=\"view-header\">" +
+      "<h2 class=\"view-title\">&#128438; Reportistica ISO</h2>" +
+      "<p class=\"view-sub\">Genera report personalizzati in formato ISO con cartiglio</p>" +
+    "</div>" +
+    "<div class=\"op-card glass\">" +
+      "<div class=\"section-title\">Seleziona Tipo Report</div>" +
+      "<div class=\"form-grid\">" +
+        "<div class=\"form-group full-width\">" +
+          "<label class=\"f4-label\">Tipo Report</label>" +
+          "<select id=\"rpt-tipo\" class=\"f4-input\">" +
+            "<option value=\"\">Seleziona...</option>" +
+            tipiReport.map(function(t) { return "<option value=\"" + t.v + "\">" + t.l + "</option>"; }).join("") +
+          "</select>" +
+        "</div>" +
+      "</div>" +
+      "<div id=\"rpt-filtri\" style=\"margin-top:1rem;\"></div>" +
+      "<div class=\"form-actions\" style=\"margin-top:1rem;\">" +
+        "<button id=\"rpt-genera\" class=\"btn btn-primary\" disabled>&#128438; Genera Anteprima e PDF</button>" +
+      "</div>" +
+    "</div>";
+
+  var magazzini = [];
+  F4.api.getMagazzini(function(e, r) {
+    if (!e && r && r.success) magazzini = r.data || [];
+  });
+
+  document.getElementById("rpt-tipo").addEventListener("change", function() {
+    var tipo = this.value;
+    document.getElementById("rpt-genera").disabled = !tipo;
+    _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi);
+  });
+
+  document.getElementById("rpt-genera").addEventListener("click", function() {
+    _eseguiReport(magazzini);
+  });
+};
+
+function _aggiornaPanelloFiltri(tipo, magazzini, vediPrezzi) {
+  var el = document.getElementById("rpt-filtri");
+  if (!el) return;
+  if (!tipo) { el.innerHTML = ""; return; }
+
+  var html = "<div class=\"section-title\" style=\"margin-top:0;\">Filtri Report</div><div class=\"form-grid\">";
+
+  var selMag = "<select id=\"rpt-f-mag\" class=\"f4-input\"><option value=\"\">Tutti</option>" +
+    magazzini.map(function(m) { return "<option value=\"" + m.idMagazzino + "\">" + m.nomeMagazzino + " (" + (m.tipoUbicazione || "Mag") + ")</option>"; }).join("") + "</select>";
+
+  if (tipo === "GIACENZE" || tipo === "CAMPIONATURE" || tipo === "NON_CONFORME") {
+    html += "<div class=\"form-group\"><label class=\"f4-label\">Magazzino</label>" + selMag + "</div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Tipo Pezzo</label>" +
+      "<select id=\"rpt-f-tipo\" class=\"f4-input\"><option value=\"\">Tutti</option>" +
+      "<option value=\"Barra\">Barre</option><option value=\"Residuo\">Residui</option></select></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Divisione</label>" +
+      "<select id=\"rpt-f-div\" class=\"f4-input\"><option value=\"\">Tutte</option><option value=\"F4 Serramenti\">F4 Serramenti</option></select></div>";
+  }
+
+  if (tipo === "MOVIMENTI") {
+    html += "<div class=\"form-group\"><label class=\"f4-label\">Data Inizio (gg/mm/aaaa)</label>" +
+      "<input id=\"rpt-f-dinizio\" class=\"f4-input\" placeholder=\"01/01/2026\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Data Fine (gg/mm/aaaa)</label>" +
+      "<input id=\"rpt-f-dfine\" class=\"f4-input\" placeholder=\"31/12/2026\"></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Tipo Movimento</label>" +
+      "<select id=\"rpt-f-tipomov\" class=\"f4-input\"><option value=\"\">Tutti</option>" +
+      "<option value=\"CARICO\">Carico</option><option value=\"SCARICO\">Scarico</option>" +
+      "<option value=\"TRASFERIMENTO\">Trasferimento</option></select></div>" +
+      "<div class=\"form-group\"><label class=\"f4-label\">Magazzino</label>" + selMag + "</div>";
+  }
+
+  if (tipo === "SCHEDA_PRODOTTO") {
+    el.innerHTML = html + "</div>";
+    // Cascade filters handled separately below
+    _renderSchedaProdFiltri(el);
+    return;
+  }
+
+  if (tipo === "RIEPILOGO_MAGAZZINI" || tipo === "INVENTARIO_COMPLETO" || tipo === "RIEPILOGO_ECONOMICO") {
+    // No extra filters needed
+  }
+
+  html += "</div>";
+  el.innerHTML = html;
+}
+
+function _renderSchedaProdFiltri(el) {
+  var tipologie = ["Piatta PVC","Piatta PVC c/incisione","Piatta Alluminio","Angolare PVC","Angolare Alluminio",
+    "Angolare non 90°","Angolare PVC Espanso","Aggancio Ang. PVC Esp.","Squadretta PVC Esp.",
+    "Coprifuga Legno Impl.","Coprifuga LA604 – barra 2,1m"];
+  var html = "<div class=\"section-title\" style=\"margin-top:0;\">Filtri Prodotto</div><div class=\"form-grid\">" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Tipologia</label>" +
+    "<select id=\"rpt-f-tip\" class=\"f4-input\"><option value=\"\">Tutte</option>" +
+    tipologie.map(function(t) { return "<option value=\"" + t + "\">" + t + "</option>"; }).join("") + "</select></div>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Materiale</label>" +
+    "<select id=\"rpt-f-mat\" class=\"f4-input\"><option value=\"\">Tutti</option></select></div>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Cod. Internorm</label>" +
+    "<input id=\"rpt-f-cod\" class=\"f4-input\" placeholder=\"es. 61520\"></div>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Misura</label>" +
+    "<select id=\"rpt-f-mis\" class=\"f4-input\"><option value=\"\">Tutte</option></select></div>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Famiglia Colore</label>" +
+    "<select id=\"rpt-f-fam\" class=\"f4-input\"><option value=\"\">Tutte</option></select></div>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Colore</label>" +
+    "<select id=\"rpt-f-col\" class=\"f4-input\"><option value=\"\">Tutti</option></select></div>" +
+    "</div>" +
+    "<div id=\"rpt-prod-selezionato\" style=\"margin-top:0.5rem;color:var(--accent-gold);font-weight:600;\"></div>";
+
+  el.innerHTML = html;
+
+  F4.api.getProdotti({stato: "Attivo"}, function(err, res) {
+    if (err || !res || !res.success) return;
+    var allP = res.data || [];
+    var IDS  = ["rpt-f-tip","rpt-f-mat","rpt-f-mis","rpt-f-fam","rpt-f-col"];
+    var CAMP = ["categoria","formaMateriale","dimensioniHxlxsp","famigliaColore","codiceColore"];
+
+    function uq(arr) { var s = {}; return arr.filter(function(v) { if (!v||s[v]) return false; s[v]=true; return true; }).sort(); }
+    function vr(id)  { var e = document.getElementById(id); return e ? e.value : ""; }
+    function subset(idx) {
+      return allP.filter(function(p) {
+        for (var i = 0; i < idx; i++) { var v = vr(IDS[i]); if (v && (p[CAMP[i]]||"") !== v) return false; }
+        return true;
+      });
+    }
+    function popola(id, vals, keep) {
+      var s = document.getElementById(id); if (!s) return;
+      var c = keep !== undefined ? keep : s.value;
+      s.innerHTML = "<option value=\"\">Tutti</option>";
+      vals.forEach(function(v) { var o = document.createElement("option"); o.value=v; o.textContent=v; if(v===c) o.selected=true; s.appendChild(o); });
+      aggiornaConto();
+    }
+    function aggiornaConto() {
+      var matches = allP.filter(function(p) {
+        for (var i = 0; i < IDS.length; i++) { var v = vr(IDS[i]); if (v && (p[CAMP[i]]||"") !== v) return false; }
+        return true;
+      });
+      var lbl = document.getElementById("rpt-prod-selezionato");
+      var btn = document.getElementById("rpt-genera");
+      if (lbl) lbl.textContent = matches.length > 0 ? matches.length + " prodotto/i selezionato/i" : "Nessun prodotto trovato";
+      if (btn) btn.disabled = (matches.length === 0);
+    }
+
+    IDS.forEach(function(id, i) {
+      popola(id, uq(allP.map(function(p) { return p[CAMP[i]]||""; }).filter(Boolean)), "");
+      var sel = document.getElementById(id);
+      if (sel) sel.addEventListener("change", function() {
+        for (var j = i+1; j < IDS.length; j++) {
+          var vals = uq(subset(j).map(function(p) { return p[CAMP[j]]||""; }).filter(Boolean));
+          var curr = vr(IDS[j]);
+          if (curr && vals.indexOf(curr) === -1) curr = "";
+          popola(IDS[j], vals, curr);
+        }
+        aggiornaConto();
+      });
+    });
+  });
+}
+
+function _eseguiReport(magazzini) {
+  var tipo   = document.getElementById("rpt-tipo") ? document.getElementById("rpt-tipo").value : "";
+  if (!tipo) { F4.ui.err("Seleziona il tipo di report"); return; }
+
+  var params = {};
+
+  if (tipo === "GIACENZE") {
+    var mag  = document.getElementById("rpt-f-mag")  ? document.getElementById("rpt-f-mag").value  : "";
+    var tp   = document.getElementById("rpt-f-tipo") ? document.getElementById("rpt-f-tipo").value : "";
+    var div  = document.getElementById("rpt-f-div")  ? document.getElementById("rpt-f-div").value  : "";
+    if (mag) params.idMagazzino = mag;
+    if (tp)  params.tipoPezzo   = tp;
+    if (div) params.divisione   = div;
+  } else if (tipo === "MOVIMENTI") {
+    var di  = document.getElementById("rpt-f-dinizio")  ? document.getElementById("rpt-f-dinizio").value  : "";
+    var df  = document.getElementById("rpt-f-dfine")    ? document.getElementById("rpt-f-dfine").value    : "";
+    var tm  = document.getElementById("rpt-f-tipomov")  ? document.getElementById("rpt-f-tipomov").value  : "";
+    var mg  = document.getElementById("rpt-f-mag")      ? document.getElementById("rpt-f-mag").value      : "";
+    if (di) params.dataInizio     = di;
+    if (df) params.dataFine       = df;
+    if (tm) params.tipoMovimento  = tm;
+    if (mg) params.idMagazzino    = mg;
+  } else if (tipo === "SCHEDA_PRODOTTO") {
+    var tip = document.getElementById("rpt-f-tip") ? document.getElementById("rpt-f-tip").value : "";
+    var mat = document.getElementById("rpt-f-mat") ? document.getElementById("rpt-f-mat").value : "";
+    var cod = document.getElementById("rpt-f-cod") ? document.getElementById("rpt-f-cod").value.trim() : "";
+    var mis = document.getElementById("rpt-f-mis") ? document.getElementById("rpt-f-mis").value : "";
+    var fam = document.getElementById("rpt-f-fam") ? document.getElementById("rpt-f-fam").value : "";
+    var col = document.getElementById("rpt-f-col") ? document.getElementById("rpt-f-col").value : "";
+    if (tip) params.categoria       = tip;
+    if (mat) params.formaMateriale  = mat;
+    if (cod) params.codiceInternorm = cod;
+    if (mis) params.dimensioni      = mis;
+    if (fam) params.famigliaColore  = fam;
+    if (col) params.codiceColore    = col;
+  }
+
+  var actionMap = {
+    "GIACENZE":            "getReportGiacenze",
+    "MOVIMENTI":           "getReportMovimenti",
+    "SCHEDA_PRODOTTO":     "getSchedaProdotto",
+    "RIEPILOGO_MAGAZZINI": "getReportRiepilogoMagazzini",
+    "INVENTARIO_COMPLETO": "getInventarioCompleto",
+    "CAMPIONATURE":        "getReportCampionature",
+    "NON_CONFORME":        "getReportNonConforme",
+    "RIEPILOGO_ECONOMICO": "getRiepilogoEconomico"
+  };
+
+  F4.ui.showSpinner("Generazione report...");
+  F4.api.call(actionMap[tipo], params, function(err, res) {
+    F4.ui.hideSpinner();
+    if (err || !res || !res.success) {
+      F4.ui.err("Errore: " + (res ? res.error : (err ? err.message : "sconosciuto")));
+      return;
+    }
+    F4.ui.ok("Report generato — apertura anteprima...");
+    setTimeout(function() { F4.report.apriAnteprima(res); }, 300);
+  });
+}
 
 // ============================================================
 // UTILITY: MODAL CREA PRODOTTO (usata da Anagrafica e Carico)
