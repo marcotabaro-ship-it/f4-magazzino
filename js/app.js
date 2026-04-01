@@ -1,133 +1,290 @@
 // ============================================================
-// app.js — Router principale e inizializzazione F4 Magazzino
+// F4 Magazzino — app.js v2.3
+// Regole: no backtick, no apostrofo italiano in stringhe single-quoted
 // ============================================================
 
-var F4 = window.F4 || {};
+var F4 = F4 || {};
 
-// ——— ROUTER ———
-F4.router = (function() {
+// ============================================================
+// AUTH
+// ============================================================
+F4.auth = (function() {
+  var _user = null;
 
-  var routes = {
-    "login":         { view: F4.views.login,        auth: false, title: "Accesso" },
-    "dashboard":     { view: F4.views.dashboard,    auth: true,  title: "Plancia Operativa" },
-    "anagrafica":    { view: F4.views.anagrafica,   auth: true,  title: "Anagrafica Prodotti" },
-    "giacenze":      { view: F4.views.giacenze,     auth: true,  title: "Giacenze e Lotti" },
-    "carico":        { view: F4.views.carico,       auth: true,  title: "Carico Merce" },
-    "scarico":       { view: F4.views.scarico,      auth: true,  title: "Scarico Merce" },
-    "trasferimento": { view: F4.views.trasferimento,auth: true,  title: "Trasferimento" },
-    "sfrido":        { view: F4.views.sfrido,       auth: true,  title: "Sfrido Intelligente" },
-    "storico":       { view: F4.views.storico,      auth: true,  title: "Macchina del Tempo",  perm: "snapshotStorico" },
-    "magazzini":     { view: F4.views.magazzini,    auth: true,  title: "Magazzini" },
-    "utenti":        { view: F4.views.utenti,       auth: true,  title: "Utenti",              perm: "gestioneUtenti" },
-    "audit":         { view: F4.views.audit,        auth: true,  title: "Audit Log",           perm: "audit" },
-    "listini":       { view: F4.views.listini,      auth: true,  title: "Listini e Sconti",  perm: "vediPrezzi" },
-    "impostazioni":  { view: F4.views.impostazioni, auth: true,  title: "Impostazioni" },
-    "reportistica":  { view: F4.views.reportistica, auth: true,  title: "Reportistica ISO" }
-  };
-
-  function go(routeName) {
-    var route = routes[routeName] || routes["dashboard"];
-
-    if (route.auth && !F4.auth.isLogged()) {
-      _render("login");
-      return;
-    }
-    if (!route.auth && F4.auth.isLogged()) {
-      _render("dashboard");
-      return;
-    }
-
-    _render(routeName);
+  function _load() {
+    try {
+      var s = sessionStorage.getItem("f4_user");
+      _user = s ? JSON.parse(s) : null;
+    } catch(e) { _user = null; }
   }
 
-  function _render(routeName) {
-    var route = routes[routeName];
-    if (!route) return;
+  function isLogged() { _load(); return !!(_user && _user.token); }
 
-    var container = document.getElementById("view-container");
-    if (!container) return;
+  function getUser() { _load(); return _user; }
 
-    container.innerHTML = "";
+  function getToken() { _load(); return _user ? _user.token : null; }
 
-    _buildNav();
-    _setActiveNav(routeName);
-    _updateUserBar();
-    _toggleSidebar(false);
+  function isAdmin() { _load(); return _user && (_user.ruolo === "Admin" || _user.ruolo === "ADMIN"); }
 
-    if (route.view) {
-      route.view(container);
-    }
+  function isResponsabile() {
+    _load();
+    return _user && (_user.ruolo === "Responsabile" || _user.ruolo === "RESPONSABILE" || isAdmin());
   }
 
-  function _setActiveNav(routeName) {
-    var links = document.querySelectorAll(".nav-link");
-    links.forEach(function(l) {
-      l.classList.remove("active");
-      if (l.dataset.route === routeName) l.classList.add("active");
-    });
+  function canDo(perm) {
+    _load();
+    if (!_user) return false;
+    var ruolo = (_user.ruolo || "").toLowerCase();
+    if (ruolo === "admin") return true;
+    var perms = {
+      vediPrezzi:      ["responsabile", "admin"],
+      gestioneListini: ["responsabile", "admin"],
+      reportistica:    ["responsabile", "admin"]
+    };
+    return perms[perm] ? perms[perm].indexOf(ruolo) !== -1 : false;
   }
 
-  function _updateUserBar() {
-    var utente = F4.auth.getUtente();
-    var bar = document.getElementById("user-bar");
-    if (!bar) return;
-    if (!utente) { bar.innerHTML = ""; return; }
-    bar.innerHTML = "<span class=\"user-name\">" + F4.ui.esc(utente.nome) + "</span>" +
-      "<span class=\"user-role badge badge-gold\">" + F4.ui.esc(utente.ruolo) + "</span>" +
-      "<button class=\"btn btn-sm btn-ghost\" id=\"btn-logout\">Esci</button>";
-    var btnLogout = document.getElementById("btn-logout");
-    if (btnLogout) btnLogout.addEventListener("click", function() { F4.auth.logout(); });
+  function login(userData) {
+    _user = userData;
+    try { sessionStorage.setItem("f4_user", JSON.stringify(userData)); } catch(e) {}
   }
 
-  function _toggleSidebar(force) {
-    var sidebar = document.getElementById("sidebar");
-    var overlay = document.getElementById("sidebar-overlay");
-    if (!sidebar) return;
-    var isOpen = !sidebar.classList.contains("closed");
-    var shouldOpen = (force !== undefined) ? force : !isOpen;
-    if (shouldOpen) {
-      sidebar.classList.remove("closed");
-      if (overlay) overlay.classList.remove("hidden");
-    } else {
-      sidebar.classList.add("closed");
-      if (overlay) overlay.classList.add("hidden");
-    }
+  function logout() {
+    _user = null;
+    try { sessionStorage.removeItem("f4_user"); } catch(e) {}
   }
 
-  return { go: go, toggleSidebar: _toggleSidebar };
-
+  return { isLogged:isLogged, getUser:getUser, getToken:getToken, isAdmin:isAdmin,
+           isResponsabile:isResponsabile, canDo:canDo, login:login, logout:logout };
 })();
 
-// ——— INIZIALIZZAZIONE APP ———
-document.addEventListener("DOMContentLoaded", function() {
+// ============================================================
+// UI HELPERS
+// ============================================================
+F4.ui = (function() {
+  function showSpinner(msg) {
+    var el = document.getElementById("f4-spinner");
+    if (el) { el.querySelector(".spinner-msg") && (el.querySelector(".spinner-msg").textContent = msg || "Caricamento..."); el.style.display = "flex"; }
+  }
+  function hideSpinner() {
+    var el = document.getElementById("f4-spinner");
+    if (el) el.style.display = "none";
+  }
+  function toast(msg, type) {
+    var t = document.createElement("div");
+    t.className = "f4-toast f4-toast-" + (type || "info");
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function() { t.classList.add("show"); }, 10);
+    setTimeout(function() { t.classList.remove("show"); setTimeout(function() { t.remove(); }, 300); }, 3000);
+  }
+  function err(msg) { toast(msg, "error"); }
+  function conferma(titolo, testo, onOk) {
+    var overlay = document.createElement("div");
+    overlay.className = "f4-modal-overlay";
+    overlay.innerHTML =
+      "<div class=\"f4-modal\">" +
+      "<div class=\"f4-modal-title\">" + titolo + "</div>" +
+      "<div class=\"f4-modal-body\">" + testo + "</div>" +
+      "<div class=\"f4-modal-actions\">" +
+      "<button class=\"btn btn-outline\" id=\"m-cancel\">Annulla</button>" +
+      "<button class=\"btn btn-primary\" id=\"m-ok\">Conferma</button>" +
+      "</div></div>";
+    document.body.appendChild(overlay);
+    overlay.querySelector("#m-cancel").addEventListener("click", function() { overlay.remove(); });
+    overlay.querySelector("#m-ok").addEventListener("click", function() { overlay.remove(); onOk(); });
+  }
+  return { showSpinner:showSpinner, hideSpinner:hideSpinner, toast:toast, err:err, conferma:conferma };
+})();
 
-  // Hamburger menu
-  var hamburger = document.getElementById("hamburger");
-  if (hamburger) hamburger.addEventListener("click", function() { F4.router.toggleSidebar(); });
+// ============================================================
+// ROUTER
+// ============================================================
+F4.router = (function() {
+  var _current = null;
+  var _routes = {};
 
-  var overlay = document.getElementById("sidebar-overlay");
-  if (overlay) overlay.addEventListener("click", function() { F4.router.toggleSidebar(false); });
+  function register(name, fn) { _routes[name] = fn; }
 
-  // Navigazione sidebar
-  var navLinks = document.querySelectorAll(".nav-link");
-  navLinks.forEach(function(link) {
-    link.addEventListener("click", function(e) {
+  function go(name) {
+    if (!F4.auth.isLogged() && name !== "login") { go("login"); return; }
+    _current = name;
+    var container = document.getElementById("view-container");
+    if (!container) return;
+    container.innerHTML = "";
+    _buildNav();
+    _setActiveNav(name);
+    _updateUserBar();
+    _toggleSidebar(false);
+    var fn = _routes[name];
+    if (fn) { fn(container); }
+    else { container.innerHTML = "<div class=\"empty-state\">Vista non trovata: " + name + "</div>"; }
+  }
+
+  function current() { return _current; }
+
+  return { register:register, go:go, current:current };
+})();
+
+// ============================================================
+// NAVIGAZIONE
+// ============================================================
+function _buildNav() {
+  var nav = document.getElementById("sidebar-nav");
+  if (!nav) return;
+
+  var logged = F4.auth.isLogged();
+  if (!logged) { nav.innerHTML = ""; return; }
+
+  var isAdmin = F4.auth.isAdmin();
+  var isResp = F4.auth.isResponsabile();
+
+  var voci = [
+    { id:"dashboard",   lbl:"Plancia Operativa",  icon:"&#127968;", always:true },
+    { id:"anagrafica",  lbl:"Anagrafica Prodotti", icon:"&#128196;", always:true },
+    { id:"giacenze",    lbl:"Giacenze e Lotti",    icon:"&#128200;", always:true },
+    { id:"carico",      lbl:"Carico Merci",        icon:"&#128229;", always:true },
+    { id:"scarico",     lbl:"Scarico Merci",       icon:"&#128230;", always:true },
+    { id:"trasferimento", lbl:"Trasferimento",     icon:"&#8644;",   always:true },
+    { id:"sfrido",      lbl:"Sfrido Intelligente", icon:"&#9986;&#65039;", always:true },
+    { id:"macchinaTempo", lbl:"Macchina del Tempo",icon:"&#128336;", always:true },
+    { id:"listini",     lbl:"Listini e Sconti",    icon:"&#128181;", resp:true },
+    { id:"reportistica",lbl:"Report ISO",          icon:"&#128196;", resp:true },
+    { id:"magazzini",   lbl:"Gestione Magazzini",  icon:"&#127968;", admin:true },
+    { id:"utenti",      lbl:"Gestione Utenti",     icon:"&#128100;", admin:true },
+    { id:"auditLog",    lbl:"Audit Log",           icon:"&#128220;", admin:true },
+    { id:"impostazioni",lbl:"Impostazioni",        icon:"&#9881;&#65039;", admin:true }
+  ];
+
+  var html = "";
+  voci.forEach(function(v) {
+    if (v.admin && !isAdmin) return;
+    if (v.resp && !isResp) return;
+    html += "<a class=\"nav-item\" data-route=\"" + v.id + "\" href=\"#\">" +
+      "<span class=\"nav-icon\">" + v.icon + "</span>" +
+      "<span class=\"nav-label\">" + v.lbl + "</span>" +
+      "</a>";
+  });
+  nav.innerHTML = html;
+
+  nav.querySelectorAll(".nav-item").forEach(function(a) {
+    a.addEventListener("click", function(e) {
       e.preventDefault();
-      var route = link.dataset.route;
-      if (route) F4.router.go(route);
+      F4.router.go(this.getAttribute("data-route"));
     });
   });
+}
 
-  // Chiudi modal
-  var modalClose = document.getElementById("f4-modal-close");
-  if (modalClose) modalClose.addEventListener("click", function() { F4.ui.closeModal(); });
-  var modalOverlay = document.getElementById("f4-modal-overlay");
-  if (modalOverlay) modalOverlay.addEventListener("click", function(e) {
-    if (e.target === modalOverlay) F4.ui.closeModal();
+function _setActiveNav(routeName) {
+  var nav = document.getElementById("sidebar-nav");
+  if (!nav) return;
+  nav.querySelectorAll(".nav-item").forEach(function(a) {
+    a.classList.toggle("active", a.getAttribute("data-route") === routeName);
+  });
+}
+
+function _updateUserBar() {
+  var u = F4.auth.getUser();
+  var el = document.getElementById("user-name");
+  if (el && u) el.textContent = u.nomeCompleto || u.username || "Utente";
+}
+
+function _toggleSidebar(force) {
+  var sidebar = document.getElementById("sidebar");
+  if (!sidebar) return;
+  if (force === true) sidebar.classList.add("open");
+  else if (force === false) sidebar.classList.remove("open");
+  else sidebar.classList.toggle("open");
+}
+
+// ============================================================
+// REGISTRAZIONE VISTE
+// ============================================================
+function _registerRoutes() {
+  F4.router.register("login",        _viewLogin);
+  F4.router.register("dashboard",    F4.views.dashboard);
+  F4.router.register("anagrafica",   F4.views.anagrafica);
+  F4.router.register("giacenze",     F4.views.giacenze);
+  F4.router.register("carico",       F4.views.carico);
+  F4.router.register("scarico",      F4.views.scarico);
+  F4.router.register("trasferimento",F4.views.trasferimento);
+  F4.router.register("sfrido",       F4.views.sfrido);
+  F4.router.register("macchinaTempo",F4.views.macchinaTempo);
+  F4.router.register("listini",      F4.views.listini);
+  F4.router.register("reportistica", F4.views.reportistica);
+  F4.router.register("magazzini",    F4.views.magazzini);
+  F4.router.register("utenti",       F4.views.utenti);
+  F4.router.register("auditLog",     F4.views.auditLog);
+  F4.router.register("impostazioni", F4.views.impostazioni);
+}
+
+// ============================================================
+// LOGIN VIEW
+// ============================================================
+function _viewLogin(container) {
+  container.innerHTML =
+    "<div class=\"login-wrap\">" +
+    "<div class=\"login-card glass\">" +
+    "<div class=\"login-logo\"><img src=\"icon.png\" alt=\"F4\"></div>" +
+    "<h1 class=\"login-title\">F4 Magazzino</h1>" +
+    "<p class=\"login-sub\">Gestione Magazzino Coprifili</p>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Username</label>" +
+    "<input id=\"lg-user\" type=\"text\" class=\"f4-input\" placeholder=\"Il tuo username\" autocomplete=\"username\"></div>" +
+    "<div class=\"form-group\"><label class=\"f4-label\">Password</label>" +
+    "<input id=\"lg-pwd\" type=\"password\" class=\"f4-input\" placeholder=\"Password\" autocomplete=\"current-password\"></div>" +
+    "<button id=\"lg-btn\" class=\"btn btn-primary btn-full\">Accedi</button>" +
+    "<div id=\"lg-err\" class=\"error-msg\" style=\"display:none\"></div>" +
+    "</div></div>";
+
+  function doLogin() {
+    var u = document.getElementById("lg-user").value.trim();
+    var p = document.getElementById("lg-pwd").value;
+    if (!u || !p) { showErr("Inserisci username e password"); return; }
+    F4.ui.showSpinner("Accesso in corso...");
+    F4.api.login({username: u, password: p}, function(err, res) {
+      F4.ui.hideSpinner();
+      if (err || !res || !res.success) {
+        showErr(res ? res.message : "Errore di connessione");
+        return;
+      }
+      F4.auth.login(res.user);
+      _buildNav();
+      F4.router.go("dashboard");
+    });
+  }
+
+  function showErr(msg) {
+    var el = document.getElementById("lg-err");
+    if (el) { el.textContent = msg; el.style.display = "block"; }
+  }
+
+  document.getElementById("lg-btn").addEventListener("click", doLogin);
+  document.getElementById("lg-pwd").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doLogin();
+  });
+  document.getElementById("lg-user").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("lg-pwd").focus();
+  });
+}
+
+// ============================================================
+// INIZIALIZZAZIONE
+// ============================================================
+document.addEventListener("DOMContentLoaded", function() {
+  // Hamburger
+  var hamburger = document.getElementById("hamburger");
+  if (hamburger) hamburger.addEventListener("click", function() { _toggleSidebar(); });
+
+  // Pulsante Esci
+  var esciBtn = document.getElementById("btn-esci");
+  if (esciBtn) esciBtn.addEventListener("click", function() {
+    F4.auth.logout();
+    _buildNav();
+    F4.router.go("login");
   });
 
-  // Sidebar: costruisci nav in base al ruolo
-  _buildNav();
+  // Registra tutte le viste
+  _registerRoutes();
 
   // Route iniziale
   if (F4.auth.isLogged()) {
@@ -137,43 +294,3 @@ document.addEventListener("DOMContentLoaded", function() {
     F4.router.go("login");
   }
 });
-
-function _buildNav() {
-  var nav = document.getElementById("nav-menu");
-  if (!nav) return;
-
-  var items = [
-    { route: "dashboard",     icon: "&#127968;", label: "Plancia",           perm: null },
-    { route: "carico",        icon: "&#10133;",  label: "Carico",            perm: null },
-    { route: "scarico",       icon: "&#10134;",  label: "Scarico",           perm: null },
-    { route: "trasferimento", icon: "&#8644;",   label: "Trasferimento",     perm: null },
-    { route: "giacenze",      icon: "&#128197;", label: "Giacenze",          perm: null },
-    { route: "anagrafica",    icon: "&#128196;", label: "Anagrafica",        perm: null },
-    { route: "sfrido",        icon: "&#9986;",   label: "Sfrido",            perm: null },
-    { route: "storico",       icon: "&#8987;",   label: "Macchina del Tempo",perm: "snapshotStorico" },
-    { route: "magazzini",     icon: "&#127968;", label: "Magazzini",         perm: null },
-    { route: "utenti",        icon: "&#128100;", label: "Utenti",            perm: "gestioneUtenti" },
-    { route: "audit",         icon: "&#128221;", label: "Audit Log",         perm: "audit" },
-    { route: "listini",       icon: "&#128181;", label: "Listini e Sconti",  perm: "vediPrezzi" },
-    { route: "impostazioni",  icon: "&#9881;",   label: "Impostazioni",      perm: null },
-    { route: "reportistica",  icon: "&#128438;", label: "Report ISO",         perm: null }
-  ];
-
-  nav.innerHTML = "";
-  items.forEach(function(item) {
-    if (item.perm && !F4.auth.canDo(item.perm)) return;
-    if (!F4.auth.isLogged() && item.route !== "login") return;
-    var a = document.createElement("a");
-    a.href = "#";
-    a.className = "nav-link";
-    a.dataset.route = item.route;
-    a.innerHTML = "<span class=\"nav-icon\">" + item.icon + "</span><span class=\"nav-label\">" + item.label + "</span>";
-    a.addEventListener("click", function(e) {
-      e.preventDefault();
-      F4.router.go(item.route);
-    });
-    nav.appendChild(a);
-  });
-}
-
-window.F4 = F4;
