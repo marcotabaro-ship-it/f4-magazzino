@@ -1,165 +1,203 @@
 // ============================================================
-// api.js — Layer API F4 Magazzino (GET-based per CORS Apps Script)
+// F4 Magazzino — api.js v2.3
+// Tutte le chiamate seguono la firma: fn(params, callback)
+// oppure fn(callback) quando non ci sono parametri.
+// callback = function(err, response)
 // ============================================================
 
-var F4 = window.F4 || {};
+var F4 = F4 || {};
 
 F4.api = (function() {
 
-  function _getToken() {
-    return localStorage.getItem(F4.CONFIG.SESSION_KEY) || "";
-  }
+  var GAS_URL = "";
 
-  function call(action, params, callback) {
-    var payload = {};
-    var keys = Object.keys(params || {});
-    for (var i = 0; i < keys.length; i++) {
-      payload[keys[i]] = params[keys[i]];
+  function _getUrl() {
+    if (GAS_URL) return GAS_URL;
+    if (typeof F4_CONFIG !== "undefined" && F4_CONFIG.GAS_URL) {
+      GAS_URL = F4_CONFIG.GAS_URL;
     }
-    payload.action = action;
-    var token = _getToken();
+    return GAS_URL;
+  }
+
+  function _call(action, params, callback) {
+    // Supporta sia _call(action, callback) che _call(action, params, callback)
+    if (typeof params === "function") {
+      callback = params;
+      params = {};
+    }
+    if (typeof callback !== "function") {
+      console.error("F4.api._call: callback non e una funzione per action=" + action);
+      return;
+    }
+
+    var url = _getUrl();
+    if (!url) {
+      callback("GAS_URL non configurato", null);
+      return;
+    }
+
+    var payload = { action: action };
+    var token = F4.auth ? F4.auth.getToken() : null;
     if (token) payload.token = token;
+    if (params) {
+      for (var k in params) {
+        if (params.hasOwnProperty(k)) payload[k] = params[k];
+      }
+    }
 
-    var qs = Object.keys(payload).map(function(k) {
-      return encodeURIComponent(k) + "=" + encodeURIComponent(
-        payload[k] === null || payload[k] === undefined ? "" : payload[k]
-      );
-    }).join("&");
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("Content-Type", "text/plain;charset=utf-8");
+    xhr.timeout = 30000;
 
-    var url = F4.CONFIG.API_URL + "?" + qs;
-
-    fetch(url, { redirect: "follow" })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.error === "Sessione non valida. Effettua il login.") {
-          F4.auth.logout(true);
-          return;
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          callback(null, data);
+        } catch(e) {
+          callback("Risposta non valida dal server", null);
         }
-        callback(null, data);
-      })
-      .catch(function(err) {
-        callback(err, null);
-      });
+      } else {
+        callback("Errore HTTP " + xhr.status, null);
+      }
+    };
+
+    xhr.onerror = function() { callback("Errore di rete", null); };
+    xhr.ontimeout = function() { callback("Timeout", null); };
+
+    xhr.send(JSON.stringify(payload));
   }
 
-  // ——— AUTH ———
-  function login(username, password, cb) {
-    call("login", { username: username, password: password }, cb);
+  // ── AUTH ──────────────────────────────────────────────────
+  function login(params, callback) {
+    _call("login", params, callback);
   }
 
-  function logout(cb) {
-    var token = _getToken();
-    call("logout", { token: token }, cb || function() {});
+  // ── DASHBOARD ─────────────────────────────────────────────
+  function getDashboard(callback) {
+    _call("getDashboard", {}, callback);
   }
 
-  function getMe(cb) { call("getMe", {}, cb); }
-
-  // ——— PRODOTTI ———
-  function getProdotti(filtri, cb)      { call("getProdotti",      filtri || {}, cb); }
-  function getProdotto(idProdotto, cb)  { call("getProdotto",      { idProdotto: idProdotto }, cb); }
-  function creaProdotto(dati, cb)       { call("creaProdotto",     dati, cb); }
-  function aggiornaProdotto(dati, cb)   { call("aggiornaProdotto", dati, cb); }
-
-  // ——— LISTINI ———
-  function getListino(idProdotto, cb) {
-    call("getListino", idProdotto ? { idProdotto: idProdotto } : {}, cb);
-  }
-  function getImpostazioni(cb)       { call("getImpostazioni", {}, cb); }
-  function setSconto(sconto, cb)     { call("setSconto", { sconto: sconto }, cb); }
-
-  // ——— GIACENZE ———
-  function getGiacenze(filtri, cb) { call("getGiacenze", filtri || {}, cb); }
-  function getLotti(filtri, cb)    { call("getLotti",    filtri || {}, cb); }
-
-  // ——— MOVIMENTI ———
-  function carico(dati, cb)        { call("carico",        dati, cb); }
-  function scarico(dati, cb)       { call("scarico",       dati, cb); }
-  function trasferimento(dati, cb) { call("trasferimento", dati, cb); }
-  function rettifica(dati, cb)     { call("rettifica",     dati, cb); }
-
-  // ——— MAGAZZINI ———
-  function getMagazzini(cb)         { call("getMagazzini",      {}, cb); }
-  function creaMagazzino(dati, cb)  { call("creaMagazzino",     dati, cb); }
-  function aggiornaMagazzino(d, cb) { call("aggiornaMagazzino", d, cb); }
-
-  // ——— UTENTI ———
-  function getUtenti(cb)             { call("getUtenti",       {}, cb); }
-  function creaUtente(dati, cb)      { call("creaUtente",      dati, cb); }
-  function aggiornaUtente(dati, cb)  { call("aggiornaUtente",  dati, cb); }
-  function impostaPassword(dati, cb) { call("impostaPassword", dati, cb); }
-
-  // ——— AUDIT ———
-  function getAudit(filtri, cb) { call("getAudit", filtri || {}, cb); }
-
-  // ——— DASHBOARD ———
-  function getDashboard(cb) { call("getDashboard", {}, cb); }
-
-  // ——— MACCHINA DEL TEMPO ———
-  function getSnapshotStorico(dataRif, cb) {
-    call("getSnapshotStorico", { dataRiferimento: dataRif }, cb);
+  // ── ANAGRAFICA ────────────────────────────────────────────
+  function getAnagrafica(callback) {
+    _call("getAnagrafica", {}, callback);
   }
 
-  // ——— SFRIDO ———
-  function cercaSfrido(lunghezza, idProdotto, idMagazzino, cb) {
-    var p = { lunghezzaRichiesta: lunghezza };
-    if (idProdotto)  p.idProdotto  = idProdotto;
-    if (idMagazzino) p.idMagazzino = idMagazzino;
-    call("cercaSfrido", p, cb);
+  // ── GIACENZE ──────────────────────────────────────────────
+  function getGiacenze(callback) {
+    _call("getGiacenze", {}, callback);
   }
 
-  // ——— REPORT ———
-  function getReportGiacenze(filtri, cb)           { call("getReportGiacenze",           filtri || {}, cb); }
-  function getReportMovimenti(filtri, cb)           { call("getReportMovimenti",           filtri || {}, cb); }
-  function getSchedaProdotto(idProdotto, cb)        { call("getSchedaProdotto",            { idProdotto: idProdotto }, cb); }
-  function getReportRiepilogoMagazzini(filtri, cb)  { call("getReportRiepilogoMagazzini",  filtri || {}, cb); }
+  // ── MAGAZZINI ─────────────────────────────────────────────
+  function getMagazzini(callback) {
+    _call("getMagazzini", {}, callback);
+  }
 
-    return {
-    call: call,
-    login: login,
-    logout: logout,
-    getMe: getMe,
-    getProdotti: getProdotti,
-    getProdotto: getProdotto,
-    creaProdotto: creaProdotto,
-    aggiornaProdotto: aggiornaProdotto,
-    getListino: getListino,
-    getImpostazioni: getImpostazioni,
-    setSconto: setSconto,
-    getGiacenze: getGiacenze,
-    getLotti: getLotti,
-    carico: carico,
-    scarico: scarico,
-    trasferimento: trasferimento,
-    rettifica: rettifica,
-    getMagazzini: getMagazzini,
-    creaMagazzino: creaMagazzino,
-    aggiornaMagazzino: aggiornaMagazzino,
-    getUtenti: getUtenti,
-    creaUtente: creaUtente,
-    aggiornaUtente: aggiornaUtente,
-    impostaPassword: impostaPassword,
-    getAudit: getAudit,
-    getDashboard: getDashboard,
-    getSnapshotStorico: getSnapshotStorico,
-    cercaSfrido: cercaSfrido,
-    getReportGiacenze: getReportGiacenze,
-    getReportMovimenti: getReportMovimenti,
-    getSchedaProdotto: getSchedaProdotto,
-    getReportRiepilogoMagazzini: getReportRiepilogoMagazzini,
-    getFornitori:              function(cb)     { call("getFornitori",            {},          cb); },
-    creaFornitore:             function(d, cb)  { call("creaFornitore",           d,           cb); },
-    getListiniTestata:         function(p, cb)  { call("getListiniTestata",       p || {},     cb); },
-    creaListinoTestata:        function(d, cb)  { call("creaListinoTestata",      d,           cb); },
-    attivaListino:             function(id, cb) { call("attivaListino",           {idListino: id}, cb); },
-    aggiornaListinoTestata:    function(d, cb)  { call("aggiornaListinoTestata",  d,           cb); },
-    getScontiListino:          function(id, cb) { call("getScontiListino",        {idListino: id}, cb); },
-    setScontoTipologia:        function(d, cb)  { call("setScontoTipologia",      d,           cb); },
-    getListinoDettaglio:       function(p, cb)  { call("getListinoDettaglio",     p || {},     cb); },
-    aggiornaPrezziPerFamiglia: function(d, cb)  { call("aggiornaPrezziPerFamiglia", d,         cb); },
-    aggiornaPrezzoSingolo:     function(d, cb)  { call("aggiornaPrezzoSingolo",  d,            cb); },
-    importaPrezziExcel:        function(d, cb)  { call("importaPrezziExcel",     d,            cb); }
+  function creaMagazzino(params, callback) {
+    _call("creaMagazzino", params, callback);
+  }
+
+  function aggiornaMagazzino(params, callback) {
+    _call("aggiornaMagazzino", params, callback);
+  }
+
+  // ── CARICO / SCARICO ──────────────────────────────────────
+  function caricaMerce(params, callback) {
+    _call("caricaMerce", params, callback);
+  }
+
+  function scaricoMerce(params, callback) {
+    _call("scaricoMerce", params, callback);
+  }
+
+  // ── TRASFERIMENTO ─────────────────────────────────────────
+  function trasferisciLotti(params, callback) {
+    _call("trasferisciLotti", params, callback);
+  }
+
+  // ── STORICO ───────────────────────────────────────────────
+  function getStorico(params, callback) {
+    _call("getStorico", params, callback);
+  }
+
+  // ── UTENTI ────────────────────────────────────────────────
+  function getUtenti(callback) {
+    _call("getUtenti", {}, callback);
+  }
+
+  function creaUtente(params, callback) {
+    _call("creaUtente", params, callback);
+  }
+
+  function aggiornaUtente(params, callback) {
+    _call("aggiornaUtente", params, callback);
+  }
+
+  function resetPassword(params, callback) {
+    _call("resetPassword", params, callback);
+  }
+
+  // ── AUDIT LOG ─────────────────────────────────────────────
+  function getAuditLog(callback) {
+    _call("getAuditLog", {}, callback);
+  }
+
+  // ── IMPOSTAZIONI ──────────────────────────────────────────
+  function getImpostazioni(callback) {
+    _call("getImpostazioni", {}, callback);
+  }
+
+  function setImpostazioni(params, callback) {
+    _call("setImpostazioni", params, callback);
+  }
+
+  // ── LISTINI E SCONTI ──────────────────────────────────────
+  function getListiniCompleto(callback) {
+    _call("getListiniCompleto", {}, callback);
+  }
+
+  function creaListino(params, callback) {
+    _call("creaListino", params, callback);
+  }
+
+  function attivaListino(params, callback) {
+    _call("attivaListino", params, callback);
+  }
+
+  function aggiornaScontiListino(params, callback) {
+    _call("aggiornaScontiListino", params, callback);
+  }
+
+  // ── REPORT ────────────────────────────────────────────────
+  function generaReport(params, callback) {
+    _call("generaReport", params, callback);
+  }
+
+  return {
+    login:                login,
+    getDashboard:         getDashboard,
+    getAnagrafica:        getAnagrafica,
+    getGiacenze:          getGiacenze,
+    getMagazzini:         getMagazzini,
+    creaMagazzino:        creaMagazzino,
+    aggiornaMagazzino:    aggiornaMagazzino,
+    caricaMerce:          caricaMerce,
+    scaricoMerce:         scaricoMerce,
+    trasferisciLotti:     trasferisciLotti,
+    getStorico:           getStorico,
+    getUtenti:            getUtenti,
+    creaUtente:           creaUtente,
+    aggiornaUtente:       aggiornaUtente,
+    resetPassword:        resetPassword,
+    getAuditLog:          getAuditLog,
+    getImpostazioni:      getImpostazioni,
+    setImpostazioni:      setImpostazioni,
+    getListiniCompleto:   getListiniCompleto,
+    creaListino:          creaListino,
+    attivaListino:        attivaListino,
+    aggiornaScontiListino:aggiornaScontiListino,
+    generaReport:         generaReport
   };
 
 })();
-
-window.F4 = F4;
