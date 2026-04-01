@@ -13,8 +13,8 @@ F4.api = (function() {
 
   function _getUrl() {
     if (GAS_URL) return GAS_URL;
-    if (typeof F4_CONFIG !== "undefined" && F4_CONFIG.GAS_URL) {
-      GAS_URL = F4_CONFIG.GAS_URL;
+    if (typeof F4 !== "undefined" && F4.CONFIG && F4.CONFIG.API_URL) {
+      GAS_URL = F4.CONFIG.API_URL;
     }
     return GAS_URL;
   }
