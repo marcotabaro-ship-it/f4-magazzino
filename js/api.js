@@ -18,14 +18,26 @@ F4.api = (function() {
     var token = F4.auth ? F4.auth.getToken() : null;
     if (token) payload.token = token;
     if (params) { for (var k in params) { if (params.hasOwnProperty(k)) payload[k] = params[k]; } }
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) { callback(null, data); })
-    .catch(function(e) { callback("Errore di connessione: " + e.message, null); });
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("Content-Type", "text/plain;charset=utf-8");
+    xhr.timeout = 30000;
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState !== 4) return;
+      if (xhr.status >= 200 && xhr.status < 400) {
+        try { callback(null, JSON.parse(xhr.responseText)); }
+        catch(e) { callback("Risposta non valida", null); }
+      } else if (xhr.status === 0) {
+        // status 0 con risposta = redirect GAS seguito correttamente
+        try { callback(null, JSON.parse(xhr.responseText)); }
+        catch(e) { callback("Errore di rete", null); }
+      } else {
+        callback("Errore HTTP " + xhr.status, null);
+      }
+    };
+    xhr.ontimeout = function() { callback("Timeout", null); };
+    xhr.send(JSON.stringify(payload));
   }
 
   function login(p,cb)                   { _call("login",p,cb); }
